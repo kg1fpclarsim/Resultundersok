@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Undersökningsrapport (CSV)</title>
+  <!-- Tailwind via CDN (snabbt, ingen build) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PapaParse (robust CSV) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    .card { background: white; border: 1px solid rgb(226 232 240); border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .chip { border: 1px solid rgb(226 232 240); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: rgb(100 116 139); background: white; }
+    .btn { display:inline-flex; align-items:center; gap:.5rem; padding:.55rem .9rem; border-radius:.65rem; font-weight:600; border:1px solid rgb(226 232 240); }
+    .btn-primary { background:#2563eb; border-color:#2563eb; color:white; }
+    .btn-primary:hover { background:#1d4ed8; }
+    .btn-ghost { background:transparent; }
+    .btn-ghost:hover { background: rgb(241 245 249); }
+    .btn-danger { color:#dc2626; }
+    .btn-danger:hover { background: rgb(254 242 242); }
+    select, input[type="text"], input[type="number"] { border:1px solid rgb(203 213 225); border-radius:.65rem; padding:.45rem .6rem; font-size: 14px; }
+    .h-scrollbar::-webkit-scrollbar { width: 10px; }
+    .h-scrollbar::-webkit-scrollbar-thumb { background: rgb(226 232 240); border-radius: 999px; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-900">
+  <header class="sticky top-0 z-20 bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div>
+        <div class="text-xl font-extrabold">Undersökningsrapport</div>
+        <div id="subtitle" class="text-xs text-slate-500">Ladda upp CSV och skapa en översikt.</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btnSetup" class="btn btn-ghost">Admin</button>
+        <button id="btnDashboard" class="btn btn-ghost">Översikt</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Setup view -->
+    <section id="viewSetup" class="space-y-6">
+      <div class="card p-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <div class="text-lg font-bold">1) Ladda upp CSV</div>
+            <div class="text-sm text-slate-600">Exportera gärna som UTF-8. Semikolon eller komma fungerar.</div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <label class="btn btn-primary cursor-pointer">
+              Välj fil
+              <input id="fileInput" type="file" accept=".csv,text/csv" class="hidden" />
+            </label>
+            <button id="btnDemo" class="btn">Använd testdata</button>
+            <button id="btnReset" class="btn btn-danger">Börja om</button>
+          </div>
+        </div>
+
+        <div id="fileInfo" class="mt-4 text-sm text-slate-600 hidden"></div>
+      </div>
+
+      <div class="card p-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-lg font-bold">2) Datamappning</div>
+            <div class="text-sm text-slate-600">Välj typ per kolumn (filter, likert, nps, enkelval, flerval, rang, fritext).</div>
+          </div>
+          <button id="btnAuto" class="btn">Autodetektera</button>
+        </div>
+
+        <div class="mt-4 grid gap-2 max-h-[56vh] overflow-y-auto pr-2 h-scrollbar" id="mappingList">
+          <div class="text-sm text-slate-500">Ladda upp data för att se kolumner.</div>
+        </div>
+
+        <div class="mt-4 pt-4 border-t border-slate-200 flex justify-end">
+          <button id="btnGenerate" class="btn btn-primary">Generera rapport</button>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <div class="text-lg font-bold mb-2">Tips</div>
+        <ul class="list-disc pl-5 text-sm text-slate-700 space-y-1">
+          <li>Markera bakgrundsdata (Avdelning, Bolag, Roll osv) som <span class="font-semibold">Filter</span>.</li>
+          <li>Likert behöver texter som matchar dina svarsalternativ (1–7).</li>
+          <li>Flerval och rangordning ska vara semikolon-separerade i cellen.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Dashboard view -->
+    <section id="viewDashboard" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+        <aside class="card p-5 space-y-5 h-[calc(100vh-130px)] overflow-y-auto h-scrollbar">
+          <div>
+            <div class="text-sm font-bold text-slate-700">Filtrering</div>
+            <div class="text-xs text-slate-500">Antal svar: <span id="countAnswers">0</span></div>
+          </div>
+
+          <div id="filters" class="space-y-3"></div>
+
+          <div class="pt-4 border-t border-slate-200">
+            <div class="text-sm font-bold text-slate-700 mb-2">Jämförelse</div>
+            <label class="text-xs text-slate-600">Gruppera på</label>
+            <select id="groupBy" class="w-full mt-1">
+              <option value="none">Ingen (Totalt)</option>
+            </select>
+          </div>
+
+          <div class="pt-4 border-t border-slate-200">
+            <button id="btnClearFilters" class="btn btn-danger w-full justify-center">Rensa alla filter</button>
+          </div>
+        </aside>
+
+        <section id="charts" class="space-y-6 pb-12"></section>
+      </div>
+    </section>
+  </main>
+
+<script>
+// =========================
+// Data + config
+// =========================
+
+const LIKERT_MAP = {
+  "Instämmer inte alls": 1,
+  "Instämmer i mycket låg grad": 2,
+  "Instämmer i låg grad": 3,
+  "Varken instämmer eller motsätter mig": 4,
+  "Instämmer i viss grad": 5,
+  "Instämmer i hög grad": 6,
+  "Instämmer helt": 7,
+};
+
+const LIKERT_LABELS = {
+  1: "Instämmer inte alls",
+  2: "Instämmer i mycket låg grad",
+  3: "Instämmer i låg grad",
+  4: "Varken instämmer eller motsätter mig",
+  5: "Instämmer i viss grad",
+  6: "Instämmer i hög grad",
+  7: "Instämmer helt",
+};
+
+// MS Forms-ish: orange -> grå -> blå
+const LIKERT_COLORS = {
+  1: "#C2410C",
+  2: "#EA580C",
+  3: "#FB923C",
+  4: "#D1D5DB",
+  5: "#93C5FD",
+  6: "#3B82F6",
+  7: "#1D4ED8",
+};
+
+const NPS_COLORS = { detractor: "#EF4444", passive: "#F59E0B", promoter: "#10B981" };
+
+const DEFAULT_CHOICE_COLORS = {
+  yes: "#10B981",
+  no: "#EF4444",
+  maybe: "#F59E0B",
+};
+
+const PIE_PALETTE = [
+  "#1D4ED8", "#DC2626", "#059669", "#F59E0B", "#7C3AED",
+  "#0EA5E9", "#BE185D", "#16A34A", "#B45309", "#374151",
+];
+
+const state = {
+  mode: "setup",
+  raw: [],            // array of objects
+  config: {},         // header -> type
+  filters: {},        // header -> selected value
+  groupBy: "none",
+  pieColorMap: {},    // question -> option -> hex
+  charts: new Map(),  // canvasEl -> chart instance
+};
+
+// =========================
+// Utilities
+// =========================
+
+const $ = (id) => document.getElementById(id);
+
+function clamp(n, min, max) { return Math.min(max, Math.max(min, n)); }
+
+function inferDelimiter(text) {
+  const first = String(text||"").split(/\r?\n/)[0] || "";
+  const commas = (first.match(/,/g) || []).length;
+  const semis = (first.match(/;/g) || []).length;
+  return semis > commas ? ";" : ",";
+}
+
+function parseCSV(text) {
+  const delimiter = inferDelimiter(text);
+  const res = Papa.parse(text, {
+    header: true,
+    skipEmptyLines: true,
+    delimiter,
+    transformHeader: (h) => String(h||"").replace(/^\uFEFF/, "").trim(),
+  });
+  if (res.errors && res.errors.length) console.warn("CSV parse errors", res.errors);
+
+  return (res.data || []).map(r => {
+    const out = {};
+    for (const k in r) out[k] = String(r[k] ?? "").trim();
+    return out;
+  });
+}
+
+function generateDemoData() {
+  const departments = ["Sälj","Marknad","IT","HR","Support"];
+  const companies = ["Bolag A","Bolag B","Bolag C"];
+  const tools = ["Teams","Slack","Zoom","Outlook","Jira","Trello"];
+  const benefits = ["Lön","Kollegor","Utveckling","Flexibilitet","Fika"];
+  const likertKeys = Object.keys(LIKERT_MAP);
+
+  const data = [];
+  for (let i=0;i<200;i++){
+    const randLikert = () => {
+      const r = Math.random();
+      if (r < 0.05) return likertKeys[0];
+      if (r < 0.10) return likertKeys[1];
+      if (r < 0.15) return likertKeys[2];
+      if (r < 0.30) return likertKeys[3];
+      if (r < 0.50) return likertKeys[4];
+      if (r < 0.75) return likertKeys[5];
+      return likertKeys[6];
+    };
+    const shuffledBenefits = [...benefits].sort(()=>0.5-Math.random()).slice(0,3);
+    const randomTools = [...tools].sort(()=>0.5-Math.random()).slice(0,Math.floor(Math.random()*3)+1);
+
+    data.push({
+      ID: String(i+1),
+      Avdelning: departments[Math.floor(Math.random()*departments.length)],
+      Bolag: companies[Math.floor(Math.random()*companies.length)],
+      "Hur sannolikt är det att du rekommenderar oss? (NPS)": String(Math.floor(Math.random()*11)),
+      "Svar": Math.random()>0.5?"Ja":"Nej",
+      "Vet ej test": Math.random()>0.7?"Vet ej":"Ja",
+      "Vilka verktyg använder du dagligen?": randomTools.join(";"),
+      "Rangordna vad som är viktigast för dig": shuffledBenefits.join(";"),
+      "Jag trivs på min arbetsplats": randLikert(),
+      "Jag har tydliga mål": randLikert(),
+      "Övriga kommentarer": Math.random()>0.8?"Bra jobbat!":"",
+    });
+  }
+  return data;
+}
+
+function autoDetectConfig(data) {
+  if (!data.length) return {};
+  const headers = Object.keys(data[0]);
+  const cfg = {};
+
+  headers.forEach((header, index) => {
+    const h = header.toLowerCase();
+    const values = data.map(r => r[header]).filter(v => v && String(v).trim() !== "");
+
+    if (h === "id" || h.includes("starttid") || h.includes("sluttid") || h === "e-post") {
+      cfg[header] = "ignore"; return;
+    }
+    if (!values.length) { cfg[header] = "ignore"; return; }
+
+    // Likert
+    const likertMatches = values.filter(v => LIKERT_MAP[v]).length;
+    if (likertMatches / values.length > 0.3) { cfg[header] = "likert"; return; }
+
+    // NPS
+    const allNumeric = values.every(v => !Number.isNaN(Number(v)));
+    if (allNumeric) {
+      const nums = values.map(v => Number(v));
+      const min = Math.min(...nums), max = Math.max(...nums);
+      if (min >= 0 && max <= 10 && (h.includes("nps") || h.includes("rekommendera"))) { cfg[header] = "nps"; return; }
+    }
+
+    const unique = [...new Set(values)];
+    const semicolonCount = values.filter(v => v.includes(";")).length;
+    const isActuallyMulti = semicolonCount > values.length * 0.02 || h.includes("vilka") || h.includes("flera") || h.includes("rangordna");
+
+    if (unique.length <= 15 && !h.includes("rangordna")) {
+      const isBackgroundKeyword = ["avdelning","bolag","stad","enhet","kön","ålder","roll","team"].some(k => h.includes(k));
+      if (index < 8 || isBackgroundKeyword) cfg[header] = "filter";
+      else cfg[header] = "single";
+      return;
+    }
+
+    if (isActuallyMulti) { cfg[header] = h.includes("rangordna") ? "rank" : "multi"; return; }
+
+    cfg[header] = "text";
+  });
+
+  return cfg;
+}
+
+function uniqueValues(data, field) {
+  return [...new Set(data.map(r => r[field]).filter(v => v && String(v).trim() !== ""))].sort((a,b)=>String(a).localeCompare(String(b)));
+}
+
+function applyFilters(data) {
+  return data.filter(row => {
+    return Object.entries(state.filters).every(([k, v]) => {
+      if (!v || v === "Alla") return true;
+      return row[k] === v;
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function groupRows(rows, groupByOverride) {
+  const gb = (groupByOverride ?? state.groupBy) || "none";
+  if (!gb || gb === "none") return [{ key: "Totalt", rows }];
+  const by = {};
+  rows.forEach(r => {
+    const k = r[gb] || "Okänd";
+    (by[k] ||= []).push(r);
+  });
+  return Object.keys(by)
+    .sort((a,b)=>String(a).localeCompare(String(b)))
+    .map(k => ({ key: k, rows: by[k] }));
+}
+
+// =========================
+// Rendering: Setup
+// =========================
+
+function renderMapping() {
+  const el = $("mappingList");
+  el.innerHTML = "";
+
+  if (!state.raw.length) {
+    el.innerHTML = '<div class="text-sm text-slate-500">Ladda upp data för att se kolumner.</div>';
+    return;
+  }
+
+  const headers = Object.keys(state.raw[0]);
+
+  headers.forEach((h) => {
+    const row = document.createElement("div");
+    row.className = "flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-lg";
+
+    const left = document.createElement("div");
+    left.className = "text-sm font-medium text-slate-700 break-words flex-1";
+    left.textContent = h;
+
+    const sel = document.createElement("select");
+    sel.className = "w-full sm:w-64";
+    const options = [
+      ["ignore","Ignorera"],
+      ["filter","Filter (Bakgrundsdata)"],
+      ["likert","Skala 1-7 (Instämmer)"],
+      ["nps","NPS (0-10)"],
+      ["single","Enkelval (Cirkeldiagram)"],
+      ["multi","Flerval (Staplar)"],
+      ["rank","Rangordning"],
+      ["text","Fritext"],
+    ];
+
+    options.forEach(([val, label]) => {
+      const o = document.createElement("option");
+      o.value = val;
+      o.textContent = label;
+      sel.appendChild(o);
+    });
+
+    sel.value = state.config[h] || "text";
+    sel.addEventListener("change", () => {
+      state.config[h] = sel.value;
+    });
+
+    row.appendChild(left);
+    row.appendChild(sel);
+    el.appendChild(row);
+  });
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  $("viewSetup").classList.toggle("hidden", mode !== "setup");
+  $("viewDashboard").classList.toggle("hidden", mode !== "dashboard");
+
+  if (mode === "dashboard") renderDashboard();
+}
+
+// =========================
+// Dashboard
+// =========================
+
+function clearAllCharts() {
+  for (const ch of state.charts.values()) {
+    try { ch.destroy(); } catch {}
+  }
+  state.charts.clear();
+}
+
+function card(title, subtitle) {
+  const c = document.createElement("div");
+  c.className = "card p-6";
+  const head = document.createElement("div");
+  head.className = "flex items-start justify-between gap-3 mb-4";
+  const t = document.createElement("div");
+  t.innerHTML = `<div class="text-lg font-extrabold text-slate-800">${escapeHtml(title)}</div>` + (subtitle ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(subtitle)}</div>` : "");
+  head.appendChild(t);
+  c.appendChild(head);
+  return c;
+}
+
+function renderDashboard() {
+  if (!state.raw.length) {
+    $("charts").innerHTML = '<div class="card p-6 text-slate-600">Ingen data. Gå till Admin och ladda upp CSV.</div>';
+    return;
+  }
+
+  const filterFields = Object.keys(state.config).filter(k => state.config[k] === "filter");
+
+  // groupBy options
+  const gb = $("groupBy");
+  gb.innerHTML = '<option value="none">Ingen (Totalt)</option>';
+  filterFields.forEach(f => {
+    const o = document.createElement("option");
+    o.value = f; o.textContent = f;
+    gb.appendChild(o);
+  });
+  gb.value = state.groupBy;
+
+  // filters list
+  const filtersEl = $("filters");
+  filtersEl.innerHTML = "";
+  filterFields.forEach(f => {
+    const box = document.createElement("div");
+    box.className = "space-y-1";
+    const lab = document.createElement("div");
+    lab.className = "text-xs font-semibold text-slate-600";
+    lab.textContent = f;
+    const sel = document.createElement("select");
+    sel.className = "w-full";
+
+    const optAll = document.createElement("option");
+    optAll.value = "Alla";
+    optAll.textContent = "Alla";
+    sel.appendChild(optAll);
+
+    uniqueValues(state.raw, f).forEach(v => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      sel.appendChild(o);
+    });
+
+    sel.value = state.filters[f] || "Alla";
+    sel.addEventListener("change", () => {
+      state.filters[f] = sel.value;
+      renderDashboard();
+    });
+
+    box.appendChild(lab);
+    box.appendChild(sel);
+    filtersEl.appendChild(box);
+  });
+
+  const filtered = applyFilters(state.raw);
+  $("countAnswers").textContent = String(filtered.length);
+
+  // charts
+  clearAllCharts();
+  const chartsEl = $("charts");
+  chartsEl.innerHTML = "";
+
+  const headers = Object.keys(state.config);
+
+  // Jämförelse: formulär per filtervärde
+  if (state.groupBy && state.groupBy !== "none") {
+    const groups = groupRows(filtered);
+
+    groups.forEach((g) => {
+      const section = document.createElement("div");
+      section.className = "card p-6";
+      section.innerHTML = `
+        <div class="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <div class="text-xl font-extrabold text-slate-800">${escapeHtml(String(state.groupBy))}: ${escapeHtml(g.key)}</div>
+            <div class="text-xs text-slate-500">Antal svar i grupp: ${g.rows.length}</div>
+          </div>
+          <div class="chip">Jämförelse</div>
+        </div>
+      `;
+
+      const inner = document.createElement("div");
+      inner.className = "space-y-6";
+
+      // Rendera gruppen som en egen rapport (utan under-grupper)
+      const savedGroupBy = state.groupBy;
+      state.groupBy = "none";
+
+      headers.forEach((q) => {
+        const type = state.config[q];
+        if (type === "ignore" || type === "filter") return;
+
+        if (type === "nps") inner.appendChild(renderNps(q, g.rows));
+        if (type === "likert") inner.appendChild(renderLikert(q, g.rows));
+        if (type === "single") inner.appendChild(renderSingle(q, g.rows));
+        if (type === "multi") inner.appendChild(renderMulti(q, g.rows));
+        if (type === "rank") inner.appendChild(renderRank(q, g.rows));
+        if (type === "text") inner.appendChild(renderText(q, g.rows));
+      });
+
+      state.groupBy = saved;
+
+      section.appendChild(inner);
+      chartsEl.appendChild(section);
+    });
+
+    return;
+  }
+
+  // === Totalt-läge (ingen gruppering) ===
+  headers.forEach((q) => {
+    const type = state.config[q];
+    if (type === "ignore" || type === "filter") return;
+
+    if (type === "nps") chartsEl.appendChild(renderNps(q, filtered));
+    if (type === "likert") chartsEl.appendChild(renderLikert(q, filtered));
+    if (type === "single") chartsEl.appendChild(renderSingle(q, filtered));
+    if (type === "multi") chartsEl.appendChild(renderMulti(q, filtered));
+    if (type === "rank") chartsEl.appendChild(renderRank(q, filtered));
+    if (type === "text") chartsEl.appendChild(renderText(q, filtered));
+  });
+}
+
+// =========================
+// Chart rendering helpers
+// =========================
+
+function card(title, subtitle) {
+  const c = document.createElement("div");
+  c.className = "card p-6";
+  const head = document.createElement("div");
+  head.className = "flex items-start justify-between gap-3 mb-4";
+  const t = document.createElement("div");
+  t.innerHTML = `<div class="text-lg font-extrabold text-slate-800">${escapeHtml(title)}</div>` + (subtitle ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(subtitle)}</div>` : "");
+  head.appendChild(t);
+  c.appendChild(head);
+  return c;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function groupRows(rows, groupByOverride) {
+  const gb = (groupByOverride ?? state.groupBy) || "none";
+  if (!gb || gb === "none") return [{ key: "Totalt", rows }];
+  const by = {};
+  rows.forEach(r => {
+    const k = r[gb] || "Okänd";
+    (by[k] ||= []).push(r);
+  });
+  return Object.keys(by)
+    .sort((a,b)=>String(a).localeCompare(String(b)))
+    .map(k => ({ key: k, rows: by[k] }));
+}
+
+// -------- NPS (gauge per group) --------
+
+function calcNps(rows, question) {
+  let promoters=0, passives=0, detractors=0, total=0;
+  rows.forEach(r => {
+    const v = Number.parseInt(r[question], 10);
+    if (Number.isNaN(v)) return;
+    total++;
+    if (v>=9) promoters++;
+    else if (v>=7) passives++;
+    else detractors++;
+  });
+  if (!total) return null;
+  const nps = Math.round(((promoters - detractors) / total) * 100);
+  return { nps, promoters, passives, detractors, total };
+}
+
+function renderGauge(value) {
+  const v = clamp(Number(value ?? 0), -100, 100);
+  const angle = (180 * (100 - v)) / 200; // 180..0
+
+  const W=260, H=160, cx=W/2, cy=130, r=90;
+
+  const polar = (cx, cy, r, aDeg) => {
+    const a = ((aDeg - 90) * Math.PI) / 180.0;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  };
+  const arc = (start, end) => {
+    const s = polar(cx, cy, r, end);
+    const e = polar(cx, cy, r, start);
+    const large = end - start <= 180 ? "0" : "1";
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 0 ${e.x} ${e.y}`;
+  };
+
+  const p = polar(cx, cy, r-10, angle);
+
+  return `
+  <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <path d="${arc(180,90)}" fill="none" stroke="${NPS_COLORS.detractor}" stroke-width="18" stroke-linecap="round" />
+    <path d="${arc(90,45)}" fill="none" stroke="${NPS_COLORS.passive}" stroke-width="18" stroke-linecap="round" />
+    <path d="${arc(45,0)}" fill="none" stroke="${NPS_COLORS.promoter}" stroke-width="18" stroke-linecap="round" />
+
+    <line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" stroke="#0F172A" stroke-width="3" stroke-linecap="round" />
+    <circle cx="${cx}" cy="${cy}" r="6" fill="#0F172A" />
+
+    <text x="${polar(cx,cy,r+18,180).x}" y="${polar(cx,cy,r+18,180).y+4}" font-size="12" fill="#64748B" text-anchor="middle">-100</text>
+    <text x="${polar(cx,cy,r+18,0).x}" y="${polar(cx,cy,r+18,0).y+4}" font-size="12" fill="#64748B" text-anchor="middle">100</text>
+    <text x="${cx}" y="${polar(cx,cy,r+18,90).y+18}" font-size="12" fill="#64748B" text-anchor="middle">0</text>
+
+    <text x="${cx}" y="${cy-30}" font-size="44" font-weight="800" fill="#0EA5A4" text-anchor="middle">${Math.round(v)}</text>
+    <text x="${cx}" y="${cy-6}" font-size="14" fill="#64748B" text-anchor="middle">NPS®</text>
+  </svg>`;
+}
+
+function renderNps(question, rows) {
+  const c = card(question);
+
+  const wrap = document.createElement("div");
+  wrap.className = "flex flex-wrap gap-10 justify-center";
+
+  groupRows(rows).forEach(g => {
+    const s = calcNps(g.rows, question);
+    if (!s) return;
+
+    const box = document.createElement("div");
+    box.className = "flex flex-col items-center";
+
+    if (state.groupBy && state.groupBy !== "none") {
+      const h = document.createElement("div");
+      h.className = "text-sm font-semibold text-slate-600 mb-2 border-b border-slate-200 pb-1";
+      h.textContent = `${g.key} (n=${s.total})`;
+      box.appendChild(h);
+    }
+
+    const gsvg = document.createElement("div");
+    gsvg.className = "w-[260px]";
+    gsvg.innerHTML = renderGauge(s.nps);
+
+    const legend = document.createElement("div");
+    legend.className = "mt-2 text-xs text-slate-600 flex flex-wrap gap-x-3 gap-y-1 justify-center";
+    legend.innerHTML = `
+      <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:${NPS_COLORS.detractor}"></span>Kritiker: ${s.detractors}</span>
+      <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:${NPS_COLORS.passive}"></span>Passiva: ${s.passives}</span>
+      <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background:${NPS_COLORS.promoter}"></span>Ambassadörer: ${s.promoters}</span>
+    `;
+
+    box.appendChild(gsvg);
+    box.appendChild(legend);
+    wrap.appendChild(box);
+  });
+
+  c.appendChild(wrap);
+  return c;
+}
+
+// -------- Likert (symmetrisk 100% per sida) --------
+
+function renderLikert(question, rows) {
+  const c = card(question);
+
+  // Vi renderar EN grupp när state.groupBy = none (diverging från mitten)
+  const groups = groupRows(rows);
+  const labels = groups.map(g => g.key);
+
+  const d1 = [], d2 = [], d3 = [], d4n = [], d4p = [], d5 = [], d6 = [], d7 = [];
+
+  groups.forEach(g => {
+    const counts = {1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+    let total = 0;
+
+    g.rows.forEach(r => {
+      const v = LIKERT_MAP[r[question]];
+      if (!v) return;
+      counts[v]++; total++;
+    });
+
+    const pct = {};
+    for (let s=1;s<=7;s++) pct[s] = total ? (counts[s]/total)*100 : 0;
+
+    // Diverging: negativt åt vänster (negativa värden), positivt åt höger
+    d1.push(-pct[1]);
+    d2.push(-pct[2]);
+    d3.push(-pct[3]);
+    d4n.push(-(pct[4]/2));
+
+    d4p.push(pct[4]/2);
+    d5.push(pct[5]);
+    d6.push(pct[6]);
+    d7.push(pct[7]);
+  });
+
+  // Fix för "sidan växer": vi sätter höjd på en wrapper-div, inte på canvas.height.
+  const h = Math.max(220, labels.length * 52 + 60);
+  const box = document.createElement("div");
+  box.style.height = `${h}px`;
+  const canvas = document.createElement("canvas");
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  box.appendChild(canvas);
+  c.appendChild(box);
+
+  const chart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: LIKERT_LABELS[1], data: d1, backgroundColor: LIKERT_COLORS[1], stack: "s" },
+        { label: LIKERT_LABELS[2], data: d2, backgroundColor: LIKERT_COLORS[2], stack: "s" },
+        { label: LIKERT_LABELS[3], data: d3, backgroundColor: LIKERT_COLORS[3], stack: "s" },
+        { label: LIKERT_LABELS[4], data: d4n, backgroundColor: LIKERT_COLORS[4], stack: "s" },
+
+        { label: LIKERT_LABELS[4], data: d4p, backgroundColor: LIKERT_COLORS[4], stack: "s" },
+        { label: LIKERT_LABELS[5], data: d5, backgroundColor: LIKERT_COLORS[5], stack: "s" },
+        { label: LIKERT_LABELS[6], data: d6, backgroundColor: LIKERT_COLORS[6], stack: "s" },
+        { label: LIKERT_LABELS[7], data: d7, backgroundColor: LIKERT_COLORS[7], stack: "s" },
+      ]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          min: -100,
+          max: 100,
+          ticks: {
+            callback: (v) => `${Math.abs(v)}%`,
+            color: "#64748B",
+          },
+          grid: { color: "#E2E8F0" },
+        },
+        y: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { color: "#334155", font: { weight: "600" } }
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          labels: {
+            // visa inte dubbla "Varken" två gånger
+            filter: (item) => item.text !== "" && !(item.text === LIKERT_LABELS[4] && item.datasetIndex === 4),
+            boxWidth: 12,
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const label = ctx.dataset.label || "";
+              const v = Math.abs(ctx.raw || 0);
+              return `${label}: ${v.toFixed(0)}%`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  state.charts.set(canvas, chart);
+  return c;
+}
+
+// -------- Single (pie per group) + färgval --------
+
+function getOptionColor(question, option, idx) {
+  const opt = String(option||"").trim();
+  const low = opt.toLowerCase();
+  const map = state.pieColorMap[question] || {};
+  if (map[opt]) return map[opt];
+
+  if (low === "ja" || low.startsWith("ja ") || low.includes(" ja")) return DEFAULT_CHOICE_COLORS.yes;
+  if (low === "nej" || low.startsWith("nej ") || low.includes(" nej")) return DEFAULT_CHOICE_COLORS.no;
+  if (low === "vet ej" || low === "vet inte" || low.includes("vet ej") || low.includes("vet inte")) return DEFAULT_CHOICE_COLORS.maybe;
+
+  return PIE_PALETTE[idx % PIE_PALETTE.length];
+}
+
+function renderSingle(question, rows) {
+  const c = card(question);
+
+  // samla alla alternativ (för färgval)
+  const allCounts = {};
+  rows.forEach(r => {
+    const v = (r[question]||"").trim();
+    if (!v) return;
+    allCounts[v] = (allCounts[v]||0) + 1;
+  });
+  const options = Object.keys(allCounts).sort((a,b)=>allCounts[b]-allCounts[a]).slice(0, 14);
+
+  // färgpanel
+  const panel = document.createElement("div");
+  panel.className = "mb-6 p-3 bg-slate-50 border border-slate-200 rounded-lg";
+  panel.innerHTML = '<div class="text-xs font-semibold text-slate-600 mb-2">Färger för svarsalternativ</div>';
+  const grid = document.createElement("div");
+  grid.className = "flex flex-wrap gap-3";
+
+  options.forEach((opt, idx) => {
+    const lab = document.createElement("label");
+    lab.className = "flex items-center gap-2 text-xs text-slate-600";
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = getOptionColor(question, opt, idx);
+    input.className = "w-8 h-6 rounded border border-slate-300";
+    input.addEventListener("input", () => {
+      state.pieColorMap[question] ||= {};
+      state.pieColorMap[question][opt] = input.value;
+      renderDashboard();
+    });
+    const span = document.createElement("span");
+    span.className = "max-w-[220px] truncate";
+    span.textContent = opt;
+    lab.appendChild(input);
+    lab.appendChild(span);
+    grid.appendChild(lab);
+  });
+
+  panel.appendChild(grid);
+  c.appendChild(panel);
+
+  const wrap = document.createElement("div");
+  wrap.className = "flex flex-wrap gap-8 justify-center";
+
+  groupRows(rows).forEach((g) => {
+    const counts = {};
+    g.rows.forEach(r => {
+      const v = (r[question]||"").trim();
+      if (!v) return;
+      counts[v] = (counts[v]||0) + 1;
+    });
+    const entries = Object.keys(counts).map(k => ({ name: k, value: counts[k] })).sort((a,b)=>b.value-a.value);
+    const total = entries.reduce((s,e)=>s+e.value,0);
+    if (!total) return;
+
+    const box = document.createElement("div");
+    box.className = "flex flex-col items-center";
+
+    if (state.groupBy !== "none") {
+      const h = document.createElement("div");
+      h.className = "font-semibold text-slate-600 mb-2 border-b border-slate-200 pb-1";
+      h.textContent = g.key;
+      box.appendChild(h);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 260; canvas.height = 260;
+    box.appendChild(canvas);
+
+    const labels = entries.map(e => e.name);
+    const data = entries.map(e => e.value);
+    const colors = entries.map((e, idx) => getOptionColor(question, e.name, idx));
+
+    const chart = new Chart(canvas.getContext("2d"), {
+      type: "doughnut",
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: "#fff" }] },
+      options: {
+        cutout: "55%",
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.raw || 0;
+                const pct = total ? (v/total)*100 : 0;
+                return `${ctx.label}: ${v} (${pct.toFixed(0)}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+    state.charts.set(canvas, chart);
+
+    // legend under
+    const legend = document.createElement("div");
+    legend.className = "flex flex-wrap gap-2 justify-center mt-2 w-64";
+    entries.slice(0, 12).forEach((e, idx) => {
+      const it = document.createElement("div");
+      it.className = "flex items-center gap-1 text-[11px] text-slate-500";
+      it.innerHTML = `<span class="inline-block w-2 h-2 rounded-full" style="background:${getOptionColor(question,e.name,idx)}"></span><span class="truncate max-w-[140px]">${escapeHtml(e.name)}</span>`;
+      legend.appendChild(it);
+    });
+
+    box.appendChild(legend);
+    wrap.appendChild(box);
+  });
+
+  c.appendChild(wrap);
+  return c;
+}
+
+// -------- Multi (bar per group vid jämförelse) --------
+
+function renderMulti(question, rows) {
+  const groups = groupRows(rows);
+
+  // One card per group when comparing, otherwise one card
+  const comparing = (state.groupBy && state.groupBy !== "none");
+  if (comparing) {
+    const wrap = document.createElement("div");
+    wrap.className = "space-y-6";
+
+    groups.forEach((g, gi) => {
+      const counts = {};
+      g.rows.forEach(r => {
+        const raw = (r[question] || "").trim();
+        if (!raw) return;
+        raw.split(";").map(s => s.trim()).filter(Boolean).forEach(k => (counts[k] = (counts[k] || 0) + 1));
+      });
+
+      const entries = Object.keys(counts)
+        .map(k => ({ name: k, value: counts[k] }))
+        .sort((a, b) => b.value - a.value);
+
+      if (!entries.length) return;
+
+      const c = card(question, g.key);
+
+      // FIX: höjd via wrapper (inte canvas.height) + bara en canvas
+      const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
+      const box = document.createElement("div");
+      box.style.height = `${h}px`;
+
+      const canvas = document.createElement("canvas");
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+
+      box.appendChild(canvas);
+      c.appendChild(box);
+
+      const chart = new Chart(canvas.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: entries.map(e => e.name),
+          datasets: [{
+            label: g.key,
+            data: entries.map(e => e.value),
+            backgroundColor: PIE_PALETTE[gi % PIE_PALETTE.length],
+          }],
+        },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.raw}` } },
+          },
+          scales: {
+            x: { grid: { display: false } },
+            y: { grid: { display: false } },
+          },
+        },
+      });
+
+      state.charts.set(canvas, chart);
+      wrap.appendChild(c);
+    });
+
+    return wrap;
+  }
+
+  // Totalt
+  const counts = {};
+  rows.forEach(r => {
+    const raw = (r[question] || "").trim();
+    if (!raw) return;
+    raw.split(";").map(s => s.trim()).filter(Boolean).forEach(k => (counts[k] = (counts[k] || 0) + 1));
+  });
+
+  const entries = Object.keys(counts)
+    .map(k => ({ name: k, value: counts[k] }))
+    .sort((a, b) => b.value - a.value);
+
+  if (!entries.length) return document.createElement("div");
+
+  const c = card(question);
+
+  const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
+  const box = document.createElement("div");
+  box.style.height = `${h}px`;
+
+  const canvas = document.createElement("canvas");
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+
+  box.appendChild(canvas);
+  c.appendChild(box);
+
+  const chart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: entries.map(e => e.name),
+      datasets: [{ label: "Totalt", data: entries.map(e => e.value), backgroundColor: PIE_PALETTE[0] }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { grid: { display: false } } },
+    },
+  });
+
+  state.charts.set(canvas, chart);
+  return c;
+}
+
+// -------- Rank (en per group när jämförelse) --------
+
+function rankStats(rows, question) {
+  const scores = {}, counts = {};
+  rows.forEach(r => {
+    const raw = (r[question]||"").trim();
+    if (!raw) return;
+    const items = raw.split(";").map(s=>s.trim()).filter(Boolean);
+    const maxScore = items.length;
+    items.forEach((item, idx) => {
+      scores[item] = (scores[item]||0) + (maxScore-idx);
+      counts[item] = (counts[item]||0) + 1;
+    });
+  });
+  return Object.keys(scores).map(k=>({name:k,score:scores[k],mentions:counts[k]})).sort((a,b)=>b.score-a.score);
+}
+
+function renderRank(question, rows) {
+  const groups = groupRows(rows);
+
+  const wrap = document.createElement("div");
+  wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
+
+  groups.forEach((g) => {
+    const stats = rankStats(g.rows, question);
+    if (!stats.length) return;
+
+    const c = card(question, state.groupBy !== "none" ? g.key : "");
+
+    const list = document.createElement("div");
+    list.className = "space-y-3";
+
+    stats.forEach((it, idx) => {
+      const row = document.createElement("div");
+      row.className = "space-y-1";
+      const top = document.createElement("div");
+      top.className = "flex items-center justify-between text-sm";
+      top.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center ${idx===0?"bg-yellow-500":idx===1?"bg-slate-400":idx===2?"bg-orange-400":"bg-slate-200 text-slate-600"}">${idx+1}</span>
+          <span class="font-semibold text-slate-700">${escapeHtml(it.name)}</span>
+        </div>
+        <div class="text-xs text-slate-500">${it.score} poäng</div>
+      `;
+
+      const barWrap = document.createElement("div");
+      barWrap.className = "w-full bg-slate-100 rounded-full h-2 overflow-hidden";
+      const bar = document.createElement("div");
+      bar.className = "h-full bg-blue-500 rounded-full";
+      bar.style.width = `${(it.score / stats[0].score) * 100}%`;
+      barWrap.appendChild(bar);
+
+      row.appendChild(top);
+      row.appendChild(barWrap);
+      list.appendChild(row);
+    });
+
+    c.appendChild(list);
+    wrap.appendChild(c);
+  });
+
+  return wrap;
+}
+
+// -------- Text (grupperad när jämförelse) --------
+
+function renderText(question, rows) {
+  const groups = groupRows(rows);
+
+  const wrap = document.createElement("div");
+  wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
+
+  let any = false;
+
+  groups.forEach((g) => {
+    const answers = g.rows.map(r => (r[question]||"").trim()).filter(Boolean);
+    if (!answers.length) return;
+    any = true;
+
+    const c = card(question, state.groupBy !== "none" ? `${g.key} (n=${g.rows.length})` : "");
+    const box = document.createElement("div");
+    box.className = "bg-slate-50 border border-slate-200 rounded-lg p-4 max-h-56 overflow-y-auto space-y-2 h-scrollbar";
+
+    answers.forEach((a) => {
+      const p = document.createElement("div");
+      p.className = "text-sm text-slate-700 pb-2 border-b border-slate-200 last:border-0 last:pb-0";
+      p.textContent = `“${a}”`;
+      box.appendChild(p);
+    });
+
+    c.appendChild(box);
+    wrap.appendChild(c);
+  });
+
+  return any ? wrap : document.createElement("div");
+}
+
+// =========================
+// Events
+// =========================
+
+$("btnSetup").addEventListener("click", () => setMode("setup"));
+$("btnDashboard").addEventListener("click", () => setMode("dashboard"));
+
+$("btnReset").addEventListener("click", () => {
+  state.raw = [];
+  state.config = {};
+  state.filters = {};
+  state.groupBy = "none";
+  state.pieColorMap = {};
+  $("fileInput").value = "";
+  $("fileInfo").classList.add("hidden");
+  renderMapping();
+  setMode("setup");
+});
+
+$("btnDemo").addEventListener("click", () => {
+  state.raw = generateDemoData();
+  state.config = autoDetectConfig(state.raw);
+  $("fileInfo").classList.remove("hidden");
+  $("fileInfo").textContent = `Testdata laddad. Rader: ${state.raw.length}`;
+  renderMapping();
+});
+
+$("btnAuto").addEventListener("click", () => {
+  if (!state.raw.length) return;
+  state.config = autoDetectConfig(state.raw);
+  renderMapping();
+});
+
+$("fileInput").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const text = await file.text();
+  state.raw = parseCSV(text);
+  state.config = autoDetectConfig(state.raw);
+  $("fileInfo").classList.remove("hidden");
+  $("fileInfo").textContent = `${file.name} laddad. Rader: ${state.raw.length}`;
+  renderMapping();
+});
+
+$("btnGenerate").addEventListener("click", () => {
+  if (!state.raw.length) return;
+
+  // Init filter selections if missing
+  Object.keys(state.config)
+    .filter((k) => state.config[k] === "filter")
+    .forEach((k) => {
+      if (!(k in state.filters)) state.filters[k] = "Alla";
+    });
+
+  // Default groupBy
+  if (!state.groupBy) state.groupBy = "none";
+
+  setMode("dashboard");
+});
+
+$("btnClearFilters").addEventListener("click", () => {
+  state.filters = {};
+  state.groupBy = "none";
+  renderDashboard();
+});
+
+// Startläge
+renderMapping();
+setMode("setu
