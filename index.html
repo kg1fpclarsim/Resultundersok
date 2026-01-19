@@ -407,7 +407,7 @@ function setMode(mode) {
   if (mode === "dashboard") renderDashboard();
 }
 
-function exportDashboardPdf() {
+async function exportDashboardPdf() {
   if (!state.raw.length) return;
 
   const button = $("btnExportPdf");
@@ -416,6 +416,10 @@ function exportDashboardPdf() {
   document.body.classList.add("pdf-export");
 
   const dashboard = $("viewDashboard");
+  const wasHidden = dashboard.classList.contains("hidden");
+  if (wasHidden) {
+    dashboard.classList.remove("hidden");
+  }
   const dateStamp = new Date().toISOString().slice(0, 10);
   const filename = `Undersokningsrapport-${dateStamp}.pdf`;
   const options = {
@@ -430,6 +434,9 @@ function exportDashboardPdf() {
     document.body.classList.remove("pdf-export");
     button.disabled = false;
     button.classList.remove("opacity-60", "cursor-wait");
+    if (wasHidden) {
+      dashboard.classList.add("hidden");
+    }
   };
 
   if (!window.html2pdf) {
@@ -438,6 +445,7 @@ function exportDashboardPdf() {
     return;
   }
 
+  await new Promise(requestAnimationFrame);
   window.html2pdf().set(options).from(dashboard).save()
     .then(finish)
     .catch(() => {
@@ -665,10 +673,12 @@ function renderNps(question, rows) {
 
   const wrap = document.createElement("div");
   wrap.className = "flex flex-wrap gap-10 justify-center";
+  let any = false;
 
   groupRows(rows).forEach(g => {
     const s = calcNps(g.rows, question);
     if (!s) return;
+    any = true;
 
     const box = document.createElement("div");
     box.className = "flex flex-col items-center";
@@ -696,6 +706,14 @@ function renderNps(question, rows) {
     box.appendChild(legend);
     wrap.appendChild(box);
   });
+
+  if (!any) {
+    const empty = document.createElement("div");
+    empty.className = "text-sm text-slate-500";
+    empty.textContent = "Inga giltiga NPS-svar att visa.";
+    c.appendChild(empty);
+    return c;
+  }
 
   c.appendChild(wrap);
   return c;
