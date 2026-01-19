@@ -508,7 +508,7 @@ function renderDashboard() {
         if (type === "text") inner.appendChild(renderText(q, g.rows));
       });
 
-      state.groupBy = saved;
+      state.groupBy = savedGroupBy;
 
       section.appendChild(inner);
       chartsEl.appendChild(section);
@@ -1178,4 +1178,7 @@ $("btnClearFilters").addEventListener("click", () => {
 
 // Startläge
 renderMapping();
-setMode("setu
+setMode("setup");
+</script>
+</body>
+</html>
