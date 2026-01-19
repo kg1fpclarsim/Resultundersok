@@ -545,7 +545,7 @@ function formatPct(value) {
   return `${value.toFixed(1)}%`;
 }
 
-function buildCopyContent(payload) {
+function buildCopyContent(payload, chartImages = []) {
   const title = payload.title || "";
   const subtitle = payload.subtitle || "";
   const sections = payload.sections || [];
@@ -563,6 +563,9 @@ function buildCopyContent(payload) {
       text += `${row.join("\t")}\n`;
     });
   });
+  if (chartImages.length) {
+    text += `\nDiagram\n(Inkluderat i kopierad HTML)\n`;
+  }
 
   const tableStyle = "border-collapse:collapse;width:100%;font-size:12px;";
   const cellStyle = "border:1px solid #e2e8f0;padding:4px 6px;text-align:left;";
@@ -594,14 +597,36 @@ function buildCopyContent(payload) {
     }
   });
   html += "</div></div>";
+  if (chartImages.length) {
+    html += `<div style="margin-top:10px;">`;
+    html += `<div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px;">Diagram</div>`;
+    chartImages.forEach((src) => {
+      html += `<div style="margin-bottom:8px;"><img src="${src}" alt="Diagram" style="max-width:100%;border:1px solid #e2e8f0;border-radius:10px;" /></div>`;
+    });
+    html += `</div>`;
+  }
 
   return { text, html };
+}
+
+function getCardChartImages(card) {
+  return Array.from(card.querySelectorAll("canvas"))
+    .map((canvas) => {
+      try {
+        return canvas.toDataURL("image/png");
+      } catch (err) {
+        console.warn("Kunde inte läsa canvas för kopiering", err);
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 async function copyCardData(card, button) {
   const payload = cardCopyData.get(card);
   if (!payload) return;
-  const { text, html } = buildCopyContent(payload);
+  const chartImages = getCardChartImages(card);
+  const { text, html } = buildCopyContent(payload, chartImages);
 
   try {
     if (navigator.clipboard?.write && window.ClipboardItem) {
