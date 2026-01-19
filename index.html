@@ -487,52 +487,6 @@ function renderDashboard() {
 
   const headers = Object.keys(state.config);
 
-  // Jämförelse: formulär per filtervärde
-  if (state.groupBy && state.groupBy !== "none") {
-    const groups = groupRows(filtered);
-
-    groups.forEach((g) => {
-      const section = document.createElement("div");
-      section.className = "card p-6";
-      section.innerHTML = `
-        <div class="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <div class="text-xl font-extrabold text-slate-800">${escapeHtml(String(state.groupBy))}: ${escapeHtml(g.key)}</div>
-            <div class="text-xs text-slate-500">Antal svar i grupp: ${g.rows.length}</div>
-          </div>
-          <div class="chip">Jämförelse</div>
-        </div>
-      `;
-
-      const inner = document.createElement("div");
-      inner.className = "space-y-6";
-
-      // Rendera gruppen som en egen rapport (utan under-grupper)
-      const savedGroupBy = state.groupBy;
-      state.groupBy = "none";
-
-      headers.forEach((q) => {
-        const type = state.config[q];
-        if (type === "ignore" || type === "filter") return;
-
-        if (type === "nps") inner.appendChild(renderNps(q, g.rows));
-        if (type === "likert") inner.appendChild(renderLikert(q, g.rows));
-        if (type === "single") inner.appendChild(renderSingle(q, g.rows));
-        if (type === "multi") inner.appendChild(renderMulti(q, g.rows));
-        if (type === "rank") inner.appendChild(renderRank(q, g.rows));
-        if (type === "text") inner.appendChild(renderText(q, g.rows));
-      });
-
-      state.groupBy = savedGroupBy;
-
-      section.appendChild(inner);
-      chartsEl.appendChild(section);
-    });
-
-    return;
-  }
-
-  // === Totalt-läge (ingen gruppering) ===
   headers.forEach((q) => {
     const type = state.config[q];
     if (type === "ignore" || type === "filter") return;
@@ -936,6 +890,9 @@ function renderMulti(question, rows) {
   // One card per group when comparing, otherwise one card
   const comparing = (state.groupBy && state.groupBy !== "none");
   if (comparing) {
+    let any = false;
+    const totalAnswers = countAnswers(question, rows, "multi");
+    const c = card(question, `Antal svar: ${totalAnswers}`);
     const wrap = document.createElement("div");
     wrap.className = "space-y-6";
 
@@ -952,12 +909,17 @@ function renderMulti(question, rows) {
         .sort((a, b) => b.value - a.value);
 
       if (!entries.length) return;
+      any = true;
 
-      const totalAnswers = countAnswers(question, g.rows, "multi");
-      const c = card(question, `${g.key} · Antal svar: ${totalAnswers}`);
+      const section = document.createElement("div");
+      section.className = "space-y-2";
 
-      // FIX: höjd via wrapper (inte canvas.height) + bara en canvas
-      const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
+      const head = document.createElement("div");
+      head.className = "text-sm font-semibold text-slate-600 border-b border-slate-200 pb-1";
+      head.textContent = `${g.key} (n=${countAnswers(question, g.rows, "multi")})`;
+      section.appendChild(head);
+
+      const h = Math.min(900, Math.max(240, entries.length * 26 + 80));
       const box = document.createElement("div");
       box.style.height = `${h}px`;
 
@@ -966,7 +928,7 @@ function renderMulti(question, rows) {
       canvas.style.height = "100%";
 
       box.appendChild(canvas);
-      c.appendChild(box);
+      section.appendChild(box);
 
       const chart = new Chart(canvas.getContext("2d"), {
         type: "bar",
@@ -994,10 +956,12 @@ function renderMulti(question, rows) {
       });
 
       state.charts.set(canvas, chart);
-      wrap.appendChild(c);
+      wrap.appendChild(section);
     });
 
-    return wrap;
+    if (!any) return document.createElement("div");
+    c.appendChild(wrap);
+    return c;
   }
 
   // Totalt
@@ -1067,16 +1031,27 @@ function rankStats(rows, question) {
 function renderRank(question, rows) {
   const groups = groupRows(rows);
 
+  const totalAnswers = countAnswers(question, rows, "rank");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
   const wrap = document.createElement("div");
   wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
+
+  let any = false;
 
   groups.forEach((g) => {
     const stats = rankStats(g.rows, question);
     if (!stats.length) return;
+    any = true;
 
-    const totalAnswers = countAnswers(question, g.rows, "rank");
-    const subtitle = state.groupBy !== "none" ? `${g.key} · Antal svar: ${totalAnswers}` : `Antal svar: ${totalAnswers}`;
-    const c = card(question, subtitle);
+    const section = document.createElement("div");
+    section.className = "space-y-3";
+
+    if (state.groupBy !== "none") {
+      const head = document.createElement("div");
+      head.className = "text-sm font-semibold text-slate-600 border-b border-slate-200 pb-1";
+      head.textContent = `${g.key} (n=${countAnswers(question, g.rows, "rank")})`;
+      section.appendChild(head);
+    }
 
     const list = document.createElement("div");
     list.className = "space-y-3";
@@ -1106,17 +1081,22 @@ function renderRank(question, rows) {
       list.appendChild(row);
     });
 
-    c.appendChild(list);
-    wrap.appendChild(c);
+    section.appendChild(list);
+    wrap.appendChild(section);
   });
 
-  return wrap;
+  if (!any) return document.createElement("div");
+  c.appendChild(wrap);
+  return c;
 }
 
 // -------- Text (grupperad när jämförelse) --------
 
 function renderText(question, rows) {
   const groups = groupRows(rows);
+
+  const totalAnswers = countAnswers(question, rows, "text");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
 
   const wrap = document.createElement("div");
   wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
@@ -1128,9 +1108,16 @@ function renderText(question, rows) {
     if (!answers.length) return;
     any = true;
 
-    const totalAnswers = countAnswers(question, g.rows, "text");
-    const subtitle = state.groupBy !== "none" ? `${g.key} · Antal svar: ${totalAnswers}` : `Antal svar: ${totalAnswers}`;
-    const c = card(question, subtitle);
+    const section = document.createElement("div");
+    section.className = "space-y-2";
+
+    if (state.groupBy !== "none") {
+      const head = document.createElement("div");
+      head.className = "text-sm font-semibold text-slate-600 border-b border-slate-200 pb-1";
+      head.textContent = `${g.key} (n=${countAnswers(question, g.rows, "text")})`;
+      section.appendChild(head);
+    }
+
     const box = document.createElement("div");
     box.className = "bg-slate-50 border border-slate-200 rounded-lg p-4 max-h-56 overflow-y-auto space-y-2 h-scrollbar";
 
@@ -1141,11 +1128,13 @@ function renderText(question, rows) {
       box.appendChild(p);
     });
 
-    c.appendChild(box);
-    wrap.appendChild(c);
+    section.appendChild(box);
+    wrap.appendChild(section);
   });
 
-  return any ? wrap : document.createElement("div");
+  if (!any) return document.createElement("div");
+  c.appendChild(wrap);
+  return c;
 }
 
 // =========================
