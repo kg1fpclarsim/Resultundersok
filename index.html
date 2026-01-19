@@ -10,8 +10,6 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <!-- html2pdf -->
-  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <style>
     :root { color-scheme: light; }
     .card { background: white; border: 1px solid rgb(226 232 240); border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
@@ -26,13 +24,6 @@
     select, input[type="text"], input[type="number"] { border:1px solid rgb(203 213 225); border-radius:.65rem; padding:.45rem .6rem; font-size: 14px; }
     .h-scrollbar::-webkit-scrollbar { width: 10px; }
     .h-scrollbar::-webkit-scrollbar-thumb { background: rgb(226 232 240); border-radius: 999px; }
-    body.pdf-export .no-print { display: none !important; }
-    body.pdf-export { background: white !important; }
-    body.pdf-export main { max-width: none !important; padding: 0 !important; }
-    body.pdf-export #viewDashboard { display: block !important; }
-    body.pdf-export .dashboard-grid { display: block !important; }
-    body.pdf-export #charts { padding-bottom: 0 !important; }
-    body.pdf-export .card { box-shadow: none; border-color: rgb(226 232 240); }
     @media print {
       .no-print { display: none !important; }
       body { background: white !important; }
@@ -54,7 +45,6 @@
       <div class="flex items-center gap-2">
         <button id="btnSetup" class="btn btn-ghost">Admin</button>
         <button id="btnDashboard" class="btn btn-ghost">Översikt</button>
-        <button id="btnExportPdf" class="btn btn-primary no-print hidden">Exportera PDF</button>
       </div>
     </div>
   </header>
@@ -196,6 +186,7 @@ const state = {
   pieColorMap: {},    // question -> option -> hex
   charts: new Map(),  // canvasEl -> chart instance
 };
+const cardCopyData = new WeakMap();
 
 // =========================
 // Utilities
@@ -402,56 +393,8 @@ function setMode(mode) {
   state.mode = mode;
   $("viewSetup").classList.toggle("hidden", mode !== "setup");
   $("viewDashboard").classList.toggle("hidden", mode !== "dashboard");
-  $("btnExportPdf").classList.toggle("hidden", mode !== "dashboard");
 
   if (mode === "dashboard") renderDashboard();
-}
-
-async function exportDashboardPdf() {
-  if (!state.raw.length) return;
-
-  const button = $("btnExportPdf");
-  button.disabled = true;
-  button.classList.add("opacity-60", "cursor-wait");
-  document.body.classList.add("pdf-export");
-
-  const dashboard = $("viewDashboard");
-  const wasHidden = dashboard.classList.contains("hidden");
-  if (wasHidden) {
-    dashboard.classList.remove("hidden");
-  }
-  const dateStamp = new Date().toISOString().slice(0, 10);
-  const filename = `Undersokningsrapport-${dateStamp}.pdf`;
-  const options = {
-    margin: [10, 10, 12, 10],
-    filename,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-  };
-
-  const finish = () => {
-    document.body.classList.remove("pdf-export");
-    button.disabled = false;
-    button.classList.remove("opacity-60", "cursor-wait");
-    if (wasHidden) {
-      dashboard.classList.add("hidden");
-    }
-  };
-
-  if (!window.html2pdf) {
-    finish();
-    window.print();
-    return;
-  }
-
-  await new Promise(requestAnimationFrame);
-  window.html2pdf().set(options).from(dashboard).save()
-    .then(finish)
-    .catch(() => {
-      finish();
-      window.print();
-    });
 }
 
 // =========================
@@ -571,7 +514,7 @@ function renderDashboard() {
 // Chart rendering helpers
 // =========================
 
-function card(title, subtitle) {
+function card(title, subtitle, copyPayload) {
   const c = document.createElement("div");
   c.className = "card p-6";
   const head = document.createElement("div");
@@ -579,12 +522,107 @@ function card(title, subtitle) {
   const t = document.createElement("div");
   t.innerHTML = `<div class="text-lg font-extrabold text-slate-800">${escapeHtml(title)}</div>` + (subtitle ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(subtitle)}</div>` : "");
   head.appendChild(t);
+  if (copyPayload) {
+    cardCopyData.set(c, copyPayload);
+    const actions = document.createElement("div");
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn-ghost text-xs";
+    copyBtn.textContent = "Kopiera";
+    copyBtn.addEventListener("click", () => copyCardData(c, copyBtn));
+    actions.appendChild(copyBtn);
+    head.appendChild(actions);
+  }
   c.appendChild(head);
   return c;
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+function formatPct(value) {
+  return `${value.toFixed(1)}%`;
+}
+
+function buildCopyContent(payload) {
+  const title = payload.title || "";
+  const subtitle = payload.subtitle || "";
+  const sections = payload.sections || [];
+
+  let text = `${title}\n`;
+  if (subtitle) text += `${subtitle}\n`;
+  text += `\nData (siffror)\n`;
+
+  sections.forEach((section) => {
+    if (section.title) text += `\n${section.title}\n`;
+    if (section.columns?.length) {
+      text += `${section.columns.join("\t")}\n`;
+    }
+    (section.rows || []).forEach((row) => {
+      text += `${row.join("\t")}\n`;
+    });
+  });
+
+  const tableStyle = "border-collapse:collapse;width:100%;font-size:12px;";
+  const cellStyle = "border:1px solid #e2e8f0;padding:4px 6px;text-align:left;";
+  let html = `<div><div style="font-weight:700;font-size:16px;color:#1e293b;">${escapeHtml(title)}</div>`;
+  if (subtitle) {
+    html += `<div style="font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(subtitle)}</div>`;
+  }
+  html += `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px;margin-top:8px;background:#f8fafc;">`;
+  html += `<div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px;">Data (siffror)</div>`;
+  sections.forEach((section) => {
+    if (section.title) {
+      html += `<div style="font-weight:600;font-size:12px;color:#0f172a;margin-top:6px;">${escapeHtml(section.title)}</div>`;
+    }
+    if (section.columns?.length) {
+      html += `<table style="${tableStyle}margin-top:4px;">`;
+      html += "<thead><tr>";
+      section.columns.forEach((col) => {
+        html += `<th style="${cellStyle}background:#e2e8f0;">${escapeHtml(col)}</th>`;
+      });
+      html += "</tr></thead><tbody>";
+      (section.rows || []).forEach((row) => {
+        html += "<tr>";
+        row.forEach((cell) => {
+          html += `<td style="${cellStyle}">${escapeHtml(String(cell))}</td>`;
+        });
+        html += "</tr>";
+      });
+      html += "</tbody></table>";
+    }
+  });
+  html += "</div></div>";
+
+  return { text, html };
+}
+
+async function copyCardData(card, button) {
+  const payload = cardCopyData.get(card);
+  if (!payload) return;
+  const { text, html } = buildCopyContent(payload);
+
+  try {
+    if (navigator.clipboard?.write && window.ClipboardItem) {
+      const item = new ClipboardItem({
+        "text/plain": new Blob([text], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" }),
+      });
+      await navigator.clipboard.write([item]);
+    } else if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    }
+    if (button) {
+      const original = button.textContent;
+      button.textContent = "Kopierad";
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1200);
+    }
+  } catch (err) {
+    console.warn("Kunde inte kopiera kort", err);
+  }
 }
 
 function groupRows(rows, groupByOverride) {
@@ -724,7 +762,27 @@ function renderNpsCard(stats, groupLabel) {
 
 function renderNps(question, rows) {
   const totalAnswers = countAnswers(question, rows, "nps");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [];
+  groupRows(rows).forEach((g) => {
+    const s = calcNps(g.rows, question);
+    if (!s) return;
+    sections.push({
+      title: g.key,
+      columns: ["Mått", "Värde"],
+      rows: [
+        ["NPS", String(s.nps)],
+        ["Promoters", String(s.promoters)],
+        ["Passives", String(s.passives)],
+        ["Detractors", String(s.detractors)],
+        ["Totalt", String(s.total)],
+      ],
+    });
+  });
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
+  });
 
   const wrap = document.createElement("div");
   wrap.className = "flex flex-col gap-6";
@@ -754,7 +812,7 @@ function renderNps(question, rows) {
 
 function renderLikert(question, rows) {
   const totalAnswers = countAnswers(question, rows, "likert");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [];
 
   // Vi renderar EN grupp när state.groupBy = none (diverging från mitten)
   const groups = groupRows(rows);
@@ -775,6 +833,16 @@ function renderLikert(question, rows) {
     const pct = {};
     for (let s=1;s<=7;s++) pct[s] = total ? (counts[s]/total)*100 : 0;
 
+    sections.push({
+      title: g.key,
+      columns: ["Skala", "Antal", "Andel"],
+      rows: [1,2,3,4,5,6,7].map((s) => [
+        LIKERT_LABELS[s],
+        String(counts[s]),
+        formatPct(pct[s]),
+      ]),
+    });
+
     // Diverging: negativt åt vänster (negativa värden), positivt åt höger
     d1.push(-pct[1]);
     d2.push(-pct[2]);
@@ -785,6 +853,12 @@ function renderLikert(question, rows) {
     d5.push(pct[5]);
     d6.push(pct[6]);
     d7.push(pct[7]);
+  });
+
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
   });
 
   // Fix för "sidan växer": vi sätter höjd på en wrapper-div, inte på canvas.height.
@@ -878,7 +952,12 @@ function getOptionColor(question, option, idx) {
 
 function renderSingle(question, rows) {
   const totalAnswers = countAnswers(question, rows, "single");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [];
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
+  });
 
   // samla alla alternativ (för färgval)
   const allCounts = {};
@@ -932,6 +1011,16 @@ function renderSingle(question, rows) {
     const entries = Object.keys(counts).map(k => ({ name: k, value: counts[k] })).sort((a,b)=>b.value-a.value);
     const total = entries.reduce((s,e)=>s+e.value,0);
     if (!total) return;
+
+    sections.push({
+      title: g.key,
+      columns: ["Alternativ", "Antal", "Andel"],
+      rows: entries.map((entry) => [
+        entry.name,
+        String(entry.value),
+        formatPct(total ? (entry.value / total) * 100 : 0),
+      ]),
+    });
 
     const box = document.createElement("div");
     box.className = "flex flex-col items-center";
@@ -1000,7 +1089,12 @@ function renderMulti(question, rows) {
   if (comparing) {
     let any = false;
     const totalAnswers = countAnswers(question, rows, "multi");
-    const c = card(question, `Antal svar: ${totalAnswers}`);
+    const sections = [];
+    const c = card(question, `Antal svar: ${totalAnswers}`, {
+      title: question,
+      subtitle: `Antal svar: ${totalAnswers}`,
+      sections,
+    });
     const wrap = document.createElement("div");
     wrap.className = "space-y-6";
 
@@ -1018,6 +1112,16 @@ function renderMulti(question, rows) {
 
       if (!entries.length) return;
       any = true;
+      const groupTotalAnswers = countAnswers(question, g.rows, "multi");
+      sections.push({
+        title: g.key,
+        columns: ["Alternativ", "Antal", "Andel"],
+        rows: entries.map((entry) => [
+          entry.name,
+          String(entry.value),
+          formatPct(groupTotalAnswers ? (entry.value / groupTotalAnswers) * 100 : 0),
+        ]),
+      });
 
       const section = document.createElement("div");
       section.className = "space-y-2";
@@ -1087,7 +1191,20 @@ function renderMulti(question, rows) {
   if (!entries.length) return document.createElement("div");
 
   const totalAnswers = countAnswers(question, rows, "multi");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [{
+    title: "Totalt",
+    columns: ["Alternativ", "Antal", "Andel"],
+    rows: entries.map((entry) => [
+      entry.name,
+      String(entry.value),
+      formatPct(totalAnswers ? (entry.value / totalAnswers) * 100 : 0),
+    ]),
+  }];
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
+  });
 
   const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
   const box = document.createElement("div");
@@ -1140,7 +1257,12 @@ function renderRank(question, rows) {
   const groups = groupRows(rows);
 
   const totalAnswers = countAnswers(question, rows, "rank");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [];
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
+  });
   const wrap = document.createElement("div");
   wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
 
@@ -1150,6 +1272,11 @@ function renderRank(question, rows) {
     const stats = rankStats(g.rows, question);
     if (!stats.length) return;
     any = true;
+    sections.push({
+      title: g.key,
+      columns: ["Alternativ", "Poäng", "Nämningar"],
+      rows: stats.map((entry) => [entry.name, String(entry.score), String(entry.mentions)]),
+    });
 
     const section = document.createElement("div");
     section.className = "space-y-3";
@@ -1204,7 +1331,12 @@ function renderText(question, rows) {
   const groups = groupRows(rows);
 
   const totalAnswers = countAnswers(question, rows, "text");
-  const c = card(question, `Antal svar: ${totalAnswers}`);
+  const sections = [];
+  const c = card(question, `Antal svar: ${totalAnswers}`, {
+    title: question,
+    subtitle: `Antal svar: ${totalAnswers}`,
+    sections,
+  });
 
   const wrap = document.createElement("div");
   wrap.className = state.groupBy !== "none" ? "space-y-6" : "";
@@ -1215,6 +1347,11 @@ function renderText(question, rows) {
     const answers = g.rows.map(r => (r[question]||"").trim()).filter(Boolean);
     if (!answers.length) return;
     any = true;
+    sections.push({
+      title: g.key,
+      columns: ["Mått", "Värde"],
+      rows: [["Antal svar", String(answers.length)]],
+    });
 
     const section = document.createElement("div");
     section.className = "space-y-2";
@@ -1251,9 +1388,6 @@ function renderText(question, rows) {
 
 $("btnSetup").addEventListener("click", () => setMode("setup"));
 $("btnDashboard").addEventListener("click", () => setMode("dashboard"));
-$("btnExportPdf").addEventListener("click", () => {
-  exportDashboardPdf();
-});
 
 $("btnReset").addEventListener("click", () => {
   state.raw = [];
