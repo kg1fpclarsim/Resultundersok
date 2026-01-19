@@ -10,6 +10,8 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- html2pdf -->
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <style>
     :root { color-scheme: light; }
     .card { background: white; border: 1px solid rgb(226 232 240); border-radius: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
@@ -24,6 +26,22 @@
     select, input[type="text"], input[type="number"] { border:1px solid rgb(203 213 225); border-radius:.65rem; padding:.45rem .6rem; font-size: 14px; }
     .h-scrollbar::-webkit-scrollbar { width: 10px; }
     .h-scrollbar::-webkit-scrollbar-thumb { background: rgb(226 232 240); border-radius: 999px; }
+    body.pdf-export .no-print { display: none !important; }
+    body.pdf-export { background: white !important; }
+    body.pdf-export main { max-width: none !important; padding: 0 !important; }
+    body.pdf-export #viewDashboard { display: block !important; }
+    body.pdf-export .dashboard-grid { display: block !important; }
+    body.pdf-export #charts { padding-bottom: 0 !important; }
+    body.pdf-export .card { box-shadow: none; border-color: rgb(226 232 240); }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; }
+      main { max-width: none !important; padding: 0 !important; }
+      #viewDashboard { display: block !important; }
+      .dashboard-grid { display: block !important; }
+      #charts { padding-bottom: 0 !important; }
+      .card { box-shadow: none; border-color: rgb(226 232 240); }
+    }
   </style>
 </head>
 <body class="min-h-screen bg-slate-100 text-slate-900">
@@ -36,6 +54,7 @@
       <div class="flex items-center gap-2">
         <button id="btnSetup" class="btn btn-ghost">Admin</button>
         <button id="btnDashboard" class="btn btn-ghost">Översikt</button>
+        <button id="btnExportPdf" class="btn btn-primary no-print hidden">Exportera PDF</button>
       </div>
     </div>
   </header>
@@ -92,8 +111,8 @@
 
     <!-- Dashboard view -->
     <section id="viewDashboard" class="hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-        <aside class="card p-5 space-y-5 h-[calc(100vh-130px)] overflow-y-auto h-scrollbar">
+      <div class="dashboard-grid grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+        <aside class="card p-5 space-y-5 h-[calc(100vh-130px)] overflow-y-auto h-scrollbar no-print">
           <div>
             <div class="text-sm font-bold text-slate-700">Filtrering</div>
             <div class="text-xs text-slate-500">Antal svar: <span id="countAnswers">0</span></div>
@@ -383,8 +402,48 @@ function setMode(mode) {
   state.mode = mode;
   $("viewSetup").classList.toggle("hidden", mode !== "setup");
   $("viewDashboard").classList.toggle("hidden", mode !== "dashboard");
+  $("btnExportPdf").classList.toggle("hidden", mode !== "dashboard");
 
   if (mode === "dashboard") renderDashboard();
+}
+
+function exportDashboardPdf() {
+  if (!state.raw.length) return;
+
+  const button = $("btnExportPdf");
+  button.disabled = true;
+  button.classList.add("opacity-60", "cursor-wait");
+  document.body.classList.add("pdf-export");
+
+  const dashboard = $("viewDashboard");
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  const filename = `Undersokningsrapport-${dateStamp}.pdf`;
+  const options = {
+    margin: [10, 10, 12, 10],
+    filename,
+    image: { type: "jpeg", quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+  };
+
+  const finish = () => {
+    document.body.classList.remove("pdf-export");
+    button.disabled = false;
+    button.classList.remove("opacity-60", "cursor-wait");
+  };
+
+  if (!window.html2pdf) {
+    finish();
+    window.print();
+    return;
+  }
+
+  window.html2pdf().set(options).from(dashboard).save()
+    .then(finish)
+    .catch(() => {
+      finish();
+      window.print();
+    });
 }
 
 // =========================
@@ -1143,6 +1202,9 @@ function renderText(question, rows) {
 
 $("btnSetup").addEventListener("click", () => setMode("setup"));
 $("btnDashboard").addEventListener("click", () => setMode("dashboard"));
+$("btnExportPdf").addEventListener("click", () => {
+  exportDashboardPdf();
+});
 
 $("btnReset").addEventListener("click", () => {
   state.raw = [];
