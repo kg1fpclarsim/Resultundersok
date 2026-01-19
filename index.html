@@ -172,7 +172,7 @@ const state = {
   mode: "setup",
   raw: [],            // array of objects
   config: {},         // header -> type
-  filters: {},        // header -> selected value
+  filters: {},        // header -> selected values (array)
   groupBy: "none",
   pieColorMap: {},    // question -> option -> hex
   charts: new Map(),  // canvasEl -> chart instance
@@ -300,9 +300,10 @@ function uniqueValues(data, field) {
 
 function applyFilters(data) {
   return data.filter(row => {
-    return Object.entries(state.filters).every(([k, v]) => {
-      if (!v || v === "Alla") return true;
-      return row[k] === v;
+    return Object.entries(state.filters).every(([k, values]) => {
+      const selected = Array.isArray(values) ? values : [];
+      if (!selected.length) return true;
+      return selected.includes(row[k]);
     });
   });
 }
@@ -397,18 +398,6 @@ function clearAllCharts() {
   state.charts.clear();
 }
 
-function card(title, subtitle) {
-  const c = document.createElement("div");
-  c.className = "card p-6";
-  const head = document.createElement("div");
-  head.className = "flex items-start justify-between gap-3 mb-4";
-  const t = document.createElement("div");
-  t.innerHTML = `<div class="text-lg font-extrabold text-slate-800">${escapeHtml(title)}</div>` + (subtitle ? `<div class="text-xs text-slate-500 mt-0.5">${escapeHtml(subtitle)}</div>` : "");
-  head.appendChild(t);
-  c.appendChild(head);
-  return c;
-}
-
 function renderDashboard() {
   if (!state.raw.length) {
     $("charts").innerHTML = '<div class="card p-6 text-slate-600">Ingen data. Gå till Admin och ladda upp CSV.</div>';
@@ -426,39 +415,65 @@ function renderDashboard() {
     gb.appendChild(o);
   });
   gb.value = state.groupBy;
+  gb.onchange = () => {
+    state.groupBy = gb.value;
+    renderDashboard();
+  };
 
   // filters list
   const filtersEl = $("filters");
   filtersEl.innerHTML = "";
   filterFields.forEach(f => {
     const box = document.createElement("div");
-    box.className = "space-y-1";
+    box.className = "space-y-2";
     const lab = document.createElement("div");
     lab.className = "text-xs font-semibold text-slate-600";
     lab.textContent = f;
-    const sel = document.createElement("select");
-    sel.className = "w-full";
+    const actions = document.createElement("div");
+    actions.className = "flex items-center justify-between";
+    const allBtn = document.createElement("button");
+    allBtn.type = "button";
+    allBtn.className = "text-xs text-slate-500 hover:text-slate-700 underline";
+    allBtn.textContent = "Alla";
+    allBtn.addEventListener("click", () => {
+      state.filters[f] = [];
+      renderDashboard();
+    });
+    const selectedCount = document.createElement("div");
+    const currentSelected = state.filters[f] || [];
+    selectedCount.className = "text-[11px] text-slate-400";
+    selectedCount.textContent = currentSelected.length ? `${currentSelected.length} valda` : "Alla valda";
+    actions.appendChild(allBtn);
+    actions.appendChild(selectedCount);
 
-    const optAll = document.createElement("option");
-    optAll.value = "Alla";
-    optAll.textContent = "Alla";
-    sel.appendChild(optAll);
+    const list = document.createElement("div");
+    list.className = "max-h-40 overflow-y-auto pr-1 space-y-1 h-scrollbar";
 
     uniqueValues(state.raw, f).forEach(v => {
-      const o = document.createElement("option");
-      o.value = v;
-      o.textContent = v;
-      sel.appendChild(o);
-    });
-
-    sel.value = state.filters[f] || "Alla";
-    sel.addEventListener("change", () => {
-      state.filters[f] = sel.value;
-      renderDashboard();
+      const item = document.createElement("label");
+      item.className = "flex items-center gap-2 text-xs text-slate-600";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = v;
+      checkbox.checked = currentSelected.includes(v);
+      checkbox.addEventListener("change", () => {
+        const next = new Set(state.filters[f] || []);
+        if (checkbox.checked) next.add(v);
+        else next.delete(v);
+        state.filters[f] = Array.from(next);
+        renderDashboard();
+      });
+      const text = document.createElement("span");
+      text.className = "truncate";
+      text.textContent = v;
+      item.appendChild(checkbox);
+      item.appendChild(text);
+      list.appendChild(item);
     });
 
     box.appendChild(lab);
-    box.appendChild(sel);
+    box.appendChild(actions);
+    box.appendChild(list);
     filtersEl.appendChild(box);
   });
 
@@ -564,6 +579,19 @@ function groupRows(rows, groupByOverride) {
     .map(k => ({ key: k, rows: by[k] }));
 }
 
+function countAnswers(question, rows, type) {
+  if (type === "likert") {
+    return rows.reduce((sum, r) => sum + (LIKERT_MAP[r[question]] ? 1 : 0), 0);
+  }
+  if (type === "nps") {
+    return rows.reduce((sum, r) => {
+      const v = Number.parseInt(r[question], 10);
+      return sum + (Number.isNaN(v) ? 0 : 1);
+    }, 0);
+  }
+  return rows.reduce((sum, r) => sum + ((r[question] || "").trim() ? 1 : 0), 0);
+}
+
 // -------- NPS (gauge per group) --------
 
 function calcNps(rows, question) {
@@ -619,7 +647,8 @@ function renderGauge(value) {
 }
 
 function renderNps(question, rows) {
-  const c = card(question);
+  const totalAnswers = countAnswers(question, rows, "nps");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
 
   const wrap = document.createElement("div");
   wrap.className = "flex flex-wrap gap-10 justify-center";
@@ -662,7 +691,8 @@ function renderNps(question, rows) {
 // -------- Likert (symmetrisk 100% per sida) --------
 
 function renderLikert(question, rows) {
-  const c = card(question);
+  const totalAnswers = countAnswers(question, rows, "likert");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
 
   // Vi renderar EN grupp när state.groupBy = none (diverging från mitten)
   const groups = groupRows(rows);
@@ -710,10 +740,10 @@ function renderLikert(question, rows) {
     data: {
       labels,
       datasets: [
-        { label: LIKERT_LABELS[1], data: d1, backgroundColor: LIKERT_COLORS[1], stack: "s" },
-        { label: LIKERT_LABELS[2], data: d2, backgroundColor: LIKERT_COLORS[2], stack: "s" },
-        { label: LIKERT_LABELS[3], data: d3, backgroundColor: LIKERT_COLORS[3], stack: "s" },
         { label: LIKERT_LABELS[4], data: d4n, backgroundColor: LIKERT_COLORS[4], stack: "s" },
+        { label: LIKERT_LABELS[3], data: d3, backgroundColor: LIKERT_COLORS[3], stack: "s" },
+        { label: LIKERT_LABELS[2], data: d2, backgroundColor: LIKERT_COLORS[2], stack: "s" },
+        { label: LIKERT_LABELS[1], data: d1, backgroundColor: LIKERT_COLORS[1], stack: "s" },
 
         { label: LIKERT_LABELS[4], data: d4p, backgroundColor: LIKERT_COLORS[4], stack: "s" },
         { label: LIKERT_LABELS[5], data: d5, backgroundColor: LIKERT_COLORS[5], stack: "s" },
@@ -748,6 +778,7 @@ function renderLikert(question, rows) {
           labels: {
             // visa inte dubbla "Varken" två gånger
             filter: (item) => item.text !== "" && !(item.text === LIKERT_LABELS[4] && item.datasetIndex === 4),
+            sort: (a, b) => (LIKERT_MAP[a.text] || 0) - (LIKERT_MAP[b.text] || 0),
             boxWidth: 12,
           }
         },
@@ -784,7 +815,8 @@ function getOptionColor(question, option, idx) {
 }
 
 function renderSingle(question, rows) {
-  const c = card(question);
+  const totalAnswers = countAnswers(question, rows, "single");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
 
   // samla alla alternativ (för färgval)
   const allCounts = {};
@@ -921,7 +953,8 @@ function renderMulti(question, rows) {
 
       if (!entries.length) return;
 
-      const c = card(question, g.key);
+      const totalAnswers = countAnswers(question, g.rows, "multi");
+      const c = card(question, `${g.key} · Antal svar: ${totalAnswers}`);
 
       // FIX: höjd via wrapper (inte canvas.height) + bara en canvas
       const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
@@ -981,7 +1014,8 @@ function renderMulti(question, rows) {
 
   if (!entries.length) return document.createElement("div");
 
-  const c = card(question);
+  const totalAnswers = countAnswers(question, rows, "multi");
+  const c = card(question, `Antal svar: ${totalAnswers}`);
 
   const h = Math.min(900, Math.max(260, entries.length * 26 + 80));
   const box = document.createElement("div");
@@ -1040,7 +1074,9 @@ function renderRank(question, rows) {
     const stats = rankStats(g.rows, question);
     if (!stats.length) return;
 
-    const c = card(question, state.groupBy !== "none" ? g.key : "");
+    const totalAnswers = countAnswers(question, g.rows, "rank");
+    const subtitle = state.groupBy !== "none" ? `${g.key} · Antal svar: ${totalAnswers}` : `Antal svar: ${totalAnswers}`;
+    const c = card(question, subtitle);
 
     const list = document.createElement("div");
     list.className = "space-y-3";
@@ -1092,7 +1128,9 @@ function renderText(question, rows) {
     if (!answers.length) return;
     any = true;
 
-    const c = card(question, state.groupBy !== "none" ? `${g.key} (n=${g.rows.length})` : "");
+    const totalAnswers = countAnswers(question, g.rows, "text");
+    const subtitle = state.groupBy !== "none" ? `${g.key} · Antal svar: ${totalAnswers}` : `Antal svar: ${totalAnswers}`;
+    const c = card(question, subtitle);
     const box = document.createElement("div");
     box.className = "bg-slate-50 border border-slate-200 rounded-lg p-4 max-h-56 overflow-y-auto space-y-2 h-scrollbar";
 
@@ -1161,7 +1199,7 @@ $("btnGenerate").addEventListener("click", () => {
   Object.keys(state.config)
     .filter((k) => state.config[k] === "filter")
     .forEach((k) => {
-      if (!(k in state.filters)) state.filters[k] = "Alla";
+      if (!(k in state.filters)) state.filters[k] = [];
     });
 
   // Default groupBy
