@@ -408,14 +408,24 @@ function uniqueValues(data, field) {
   return [...new Set(data.map(r => r[field]).filter(v => v && String(v).trim() !== ""))].sort((a,b)=>String(a).localeCompare(String(b)));
 }
 
-function applyFilters(data) {
+function applyFilters(data, excludeKey) {
   return data.filter(row => {
     return Object.entries(state.filters).every(([k, values]) => {
+      if (k === excludeKey) return true;
       const selected = Array.isArray(values) ? values : [];
       if (!selected.length) return true;
       return selected.includes(row[k]);
     });
   });
+}
+
+function updateSubtitle() {
+  if (state.mode === "dashboard") {
+    const label = state.currentFileLabel ? `Översikt för: ${state.currentFileLabel}` : "Översikt";
+    $("subtitle").textContent = label;
+    return;
+  }
+  $("subtitle").textContent = "Ladda upp CSV och skapa en översikt.";
 }
 
 function escapeHtml(s) {
@@ -494,6 +504,7 @@ function setMode(mode) {
   state.mode = mode;
   $("viewSetup").classList.toggle("hidden", mode !== "setup");
   $("viewDashboard").classList.toggle("hidden", mode !== "dashboard");
+  updateSubtitle();
 
   if (mode === "dashboard") renderDashboard();
 }
@@ -535,6 +546,12 @@ function renderDashboard() {
   const filtersEl = $("filters");
   filtersEl.innerHTML = "";
   filterFields.forEach(f => {
+    const filteredForOptions = applyFilters(state.raw, f);
+    const currentSelected = state.filters[f] || [];
+    const availableValues = uniqueValues(filteredForOptions, f);
+    const optionValues = Array.from(new Set([...availableValues, ...currentSelected]))
+      .sort((a, b) => String(a).localeCompare(String(b)));
+
     const box = document.createElement("div");
     box.className = "space-y-2";
     const lab = document.createElement("div");
@@ -551,7 +568,6 @@ function renderDashboard() {
       renderDashboard();
     });
     const selectedCount = document.createElement("div");
-    const currentSelected = state.filters[f] || [];
     selectedCount.className = "text-[11px] text-slate-400";
     selectedCount.textContent = currentSelected.length ? `${currentSelected.length} valda` : "Alla valda";
     actions.appendChild(allBtn);
@@ -560,7 +576,7 @@ function renderDashboard() {
     const list = document.createElement("div");
     list.className = "max-h-40 overflow-y-auto pr-1 space-y-1 h-scrollbar";
 
-    uniqueValues(state.raw, f).forEach(v => {
+    optionValues.forEach(v => {
       const item = document.createElement("label");
       item.className = "flex items-center gap-2 text-xs text-slate-600";
       const checkbox = document.createElement("input");
@@ -581,6 +597,13 @@ function renderDashboard() {
       item.appendChild(text);
       list.appendChild(item);
     });
+
+    if (!optionValues.length) {
+      const empty = document.createElement("div");
+      empty.className = "text-xs text-slate-400";
+      empty.textContent = "Inga valbara alternativ.";
+      list.appendChild(empty);
+    }
 
     box.appendChild(lab);
     box.appendChild(actions);
