@@ -1296,7 +1296,7 @@ function renderSingle(question, rows) {
     if (state.groupBy !== "none") {
       const h = document.createElement("div");
       h.className = "font-semibold text-slate-600 mb-2 border-b border-slate-200 pb-1";
-      h.textContent = g.key;
+      h.textContent = `${g.key} (n=${total})`;
       box.appendChild(h);
     }
 
@@ -1341,7 +1341,7 @@ function renderSingle(question, rows) {
 
     canvas.dataset.copyTitle = question;
     canvas.dataset.copySubtitle = `Antal svar: ${total}`;
-    canvas.dataset.copyGroup = state.groupBy !== "none" ? g.key : "";
+    canvas.dataset.copyGroup = state.groupBy !== "none" ? `${g.key} (n=${total})` : "";
     canvas.dataset.copyLegend = JSON.stringify(
       entries.slice(0, 12).map((entry, idx) => ({
         label: entry.name,
