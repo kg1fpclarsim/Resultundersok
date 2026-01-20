@@ -525,12 +525,21 @@ function card(title, subtitle, copyPayload) {
   if (copyPayload) {
     cardCopyData.set(c, copyPayload);
     const actions = document.createElement("div");
-    const copyBtn = document.createElement("button");
-    copyBtn.type = "button";
-    copyBtn.className = "btn btn-ghost text-xs";
-    copyBtn.textContent = "Kopiera";
-    copyBtn.addEventListener("click", () => copyCardData(c, copyBtn));
-    actions.appendChild(copyBtn);
+    actions.className = "flex flex-col sm:flex-row gap-2";
+    const copyValuesBtn = document.createElement("button");
+    copyValuesBtn.type = "button";
+    copyValuesBtn.className = "btn btn-ghost text-xs";
+    copyValuesBtn.textContent = "Kopiera värden";
+    copyValuesBtn.addEventListener("click", () => copyCardData(c, copyValuesBtn, "values"));
+
+    const copyChartBtn = document.createElement("button");
+    copyChartBtn.type = "button";
+    copyChartBtn.className = "btn btn-ghost text-xs";
+    copyChartBtn.textContent = "Kopiera diagram";
+    copyChartBtn.addEventListener("click", () => copyCardData(c, copyChartBtn, "chart"));
+
+    actions.appendChild(copyValuesBtn);
+    actions.appendChild(copyChartBtn);
     head.appendChild(actions);
   }
   c.appendChild(head);
@@ -545,25 +554,28 @@ function formatPct(value) {
   return `${value.toFixed(1)}%`;
 }
 
-function buildCopyContent(payload, chartImages = []) {
+function buildCopyContent(payload, chartImages = [], options = {}) {
+  const { includeData = true, includeCharts = true } = options;
   const title = payload.title || "";
   const subtitle = payload.subtitle || "";
   const sections = payload.sections || [];
 
   let text = `${title}\n`;
   if (subtitle) text += `${subtitle}\n`;
-  text += `\nData (siffror)\n`;
+  if (includeData) {
+    text += `\nData (siffror)\n`;
 
-  sections.forEach((section) => {
-    if (section.title) text += `\n${section.title}\n`;
-    if (section.columns?.length) {
-      text += `${section.columns.join("\t")}\n`;
-    }
-    (section.rows || []).forEach((row) => {
-      text += `${row.join("\t")}\n`;
+    sections.forEach((section) => {
+      if (section.title) text += `\n${section.title}\n`;
+      if (section.columns?.length) {
+        text += `${section.columns.join("\t")}\n`;
+      }
+      (section.rows || []).forEach((row) => {
+        text += `${row.join("\t")}\n`;
+      });
     });
-  });
-  if (chartImages.length) {
+  }
+  if (includeCharts && chartImages.length) {
     text += `\nDiagram\n(Inkluderat i kopierad HTML)\n`;
   }
 
@@ -573,31 +585,33 @@ function buildCopyContent(payload, chartImages = []) {
   if (subtitle) {
     html += `<div style="font-size:12px;color:#64748b;margin-top:2px;">${escapeHtml(subtitle)}</div>`;
   }
-  html += `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px;margin-top:8px;background:#f8fafc;">`;
-  html += `<div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px;">Data (siffror)</div>`;
-  sections.forEach((section) => {
-    if (section.title) {
-      html += `<div style="font-weight:600;font-size:12px;color:#0f172a;margin-top:6px;">${escapeHtml(section.title)}</div>`;
-    }
-    if (section.columns?.length) {
-      html += `<table style="${tableStyle}margin-top:4px;">`;
-      html += "<thead><tr>";
-      section.columns.forEach((col) => {
-        html += `<th style="${cellStyle}background:#e2e8f0;">${escapeHtml(col)}</th>`;
-      });
-      html += "</tr></thead><tbody>";
-      (section.rows || []).forEach((row) => {
-        html += "<tr>";
-        row.forEach((cell) => {
-          html += `<td style="${cellStyle}">${escapeHtml(String(cell))}</td>`;
+  if (includeData) {
+    html += `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:8px;margin-top:8px;background:#f8fafc;">`;
+    html += `<div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px;">Data (siffror)</div>`;
+    sections.forEach((section) => {
+      if (section.title) {
+        html += `<div style="font-weight:600;font-size:12px;color:#0f172a;margin-top:6px;">${escapeHtml(section.title)}</div>`;
+      }
+      if (section.columns?.length) {
+        html += `<table style="${tableStyle}margin-top:4px;">`;
+        html += "<thead><tr>";
+        section.columns.forEach((col) => {
+          html += `<th style="${cellStyle}background:#e2e8f0;">${escapeHtml(col)}</th>`;
         });
-        html += "</tr>";
-      });
-      html += "</tbody></table>";
-    }
-  });
-  html += "</div></div>";
-  if (chartImages.length) {
+        html += "</tr></thead><tbody>";
+        (section.rows || []).forEach((row) => {
+          html += "<tr>";
+          row.forEach((cell) => {
+            html += `<td style="${cellStyle}">${escapeHtml(String(cell))}</td>`;
+          });
+          html += "</tr>";
+        });
+        html += "</tbody></table>";
+      }
+    });
+    html += "</div>";
+  }
+  if (includeCharts && chartImages.length) {
     html += `<div style="margin-top:10px;">`;
     html += `<div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px;">Diagram</div>`;
     chartImages.forEach((src) => {
@@ -605,6 +619,7 @@ function buildCopyContent(payload, chartImages = []) {
     });
     html += `</div>`;
   }
+  html += "</div>";
 
   return { text, html };
 }
@@ -622,11 +637,23 @@ function getCardChartImages(card) {
     .filter(Boolean);
 }
 
-async function copyCardData(card, button) {
+async function copyCardData(card, button, mode = "values") {
   const payload = cardCopyData.get(card);
   if (!payload) return;
-  const chartImages = getCardChartImages(card);
-  const { text, html } = buildCopyContent(payload, chartImages);
+  const includeCharts = mode === "chart";
+  const includeData = mode === "values";
+  const chartImages = includeCharts ? getCardChartImages(card) : [];
+  if (includeCharts && !chartImages.length) {
+    if (button) {
+      const original = button.textContent;
+      button.textContent = "Inget diagram";
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1200);
+    }
+    return;
+  }
+  const { text, html } = buildCopyContent(payload, chartImages, { includeData, includeCharts });
 
   try {
     if (navigator.clipboard?.write && window.ClipboardItem) {
