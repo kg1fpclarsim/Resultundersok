@@ -766,12 +766,9 @@ function buildLegendLines(ctx, entries, maxWidth) {
 function buildSingleChoiceCopyImage(canvas) {
   try {
     const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
-    const title = canvas.dataset.copyTitle || "";
-    const subtitle = canvas.dataset.copySubtitle || "";
     const group = canvas.dataset.copyGroup || "";
     const padding = 16;
     const maxWidth = canvas.width;
-    const titleFont = "700 16px system-ui, -apple-system, sans-serif";
     const metaFont = "12px system-ui, -apple-system, sans-serif";
     const legendFont = "12px system-ui, -apple-system, sans-serif";
     const lineHeight = 16;
@@ -781,10 +778,8 @@ function buildSingleChoiceCopyImage(canvas) {
     tempCtx.font = legendFont;
     const legendLines = legend.length ? buildLegendLines(tempCtx, legend, maxWidth) : [];
     const legendHeight = legendLines.length ? legendLines.length * lineHeight + 8 : 0;
-    const titleHeight = title ? 20 : 0;
-    const subtitleHeight = subtitle ? 16 : 0;
     const groupHeight = group ? 16 : 0;
-    const contentHeight = titleHeight + subtitleHeight + groupHeight + canvas.height + legendHeight;
+    const contentHeight = groupHeight + canvas.height + legendHeight;
     const totalHeight = contentHeight + padding * 2;
     const totalWidth = maxWidth + padding * 2;
     const dpr = window.devicePixelRatio || 1;
@@ -796,18 +791,6 @@ function buildSingleChoiceCopyImage(canvas) {
     tempCtx.fillRect(0, 0, totalWidth, totalHeight);
 
     let y = padding;
-    if (title) {
-      tempCtx.font = titleFont;
-      tempCtx.fillStyle = "#1e293b";
-      tempCtx.fillText(title, padding, y + 14);
-      y += titleHeight;
-    }
-    if (subtitle) {
-      tempCtx.font = metaFont;
-      tempCtx.fillStyle = "#64748b";
-      tempCtx.fillText(subtitle, padding, y + 12);
-      y += subtitleHeight;
-    }
     if (group) {
       tempCtx.font = metaFont;
       tempCtx.fillStyle = "#475569";
