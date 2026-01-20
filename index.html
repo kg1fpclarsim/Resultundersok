@@ -763,23 +763,32 @@ function buildLegendLines(ctx, entries, maxWidth) {
   return lines;
 }
 
-function buildSingleChoiceHeaderImage(canvas) {
+function buildSingleChoiceCopyImage(canvas) {
   try {
+    const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
     const title = canvas.dataset.copyTitle || "";
     const subtitle = canvas.dataset.copySubtitle || "";
+    const group = canvas.dataset.copyGroup || "";
     const padding = 16;
     const maxWidth = canvas.width;
     const titleFont = "700 16px system-ui, -apple-system, sans-serif";
     const metaFont = "12px system-ui, -apple-system, sans-serif";
+    const legendFont = "12px system-ui, -apple-system, sans-serif";
+    const lineHeight = 16;
+
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
+    tempCtx.font = legendFont;
+    const legendLines = legend.length ? buildLegendLines(tempCtx, legend, maxWidth) : [];
+    const legendHeight = legendLines.length ? legendLines.length * lineHeight + 8 : 0;
     const titleHeight = title ? 20 : 0;
     const subtitleHeight = subtitle ? 16 : 0;
-    const contentHeight = titleHeight + subtitleHeight;
+    const groupHeight = group ? 16 : 0;
+    const contentHeight = titleHeight + subtitleHeight + groupHeight + canvas.height + legendHeight;
     const totalHeight = contentHeight + padding * 2;
     const totalWidth = maxWidth + padding * 2;
     const dpr = window.devicePixelRatio || 1;
 
-    const tempCanvas = document.createElement("canvas");
-    const tempCtx = tempCanvas.getContext("2d");
     tempCanvas.width = totalWidth * dpr;
     tempCanvas.height = totalHeight * dpr;
     tempCtx.scale(dpr, dpr);
@@ -799,55 +808,11 @@ function buildSingleChoiceHeaderImage(canvas) {
       tempCtx.fillText(subtitle, padding, y + 12);
       y += subtitleHeight;
     }
-
-    return tempCanvas.toDataURL("image/png");
-  } catch (err) {
-    console.warn("Kunde inte bygga rubrikbild", err);
-    return null;
-  }
-}
-
-function buildSingleChoiceChartImage(canvas) {
-  try {
-    const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
-    const group = canvas.dataset.copyGroup || "";
-    const groupCount = canvas.dataset.copyGroupCount || "";
-    const padding = 16;
-    const maxWidth = canvas.width;
-    const metaFont = "12px system-ui, -apple-system, sans-serif";
-    const legendFont = "12px system-ui, -apple-system, sans-serif";
-    const lineHeight = 16;
-
-    const tempCanvas = document.createElement("canvas");
-    const tempCtx = tempCanvas.getContext("2d");
-    tempCtx.font = legendFont;
-    const legendLines = legend.length ? buildLegendLines(tempCtx, legend, maxWidth) : [];
-    const legendHeight = legendLines.length ? legendLines.length * lineHeight + 8 : 0;
-    const groupHeight = group ? 16 : 0;
-    const countHeight = groupCount ? 16 : 0;
-    const contentHeight = groupHeight + countHeight + canvas.height + legendHeight;
-    const totalHeight = contentHeight + padding * 2;
-    const totalWidth = maxWidth + padding * 2;
-    const dpr = window.devicePixelRatio || 1;
-
-    tempCanvas.width = totalWidth * dpr;
-    tempCanvas.height = totalHeight * dpr;
-    tempCtx.scale(dpr, dpr);
-    tempCtx.fillStyle = "#ffffff";
-    tempCtx.fillRect(0, 0, totalWidth, totalHeight);
-
-    let y = padding;
     if (group) {
       tempCtx.font = metaFont;
-      tempCtx.fillStyle = "#1e293b";
+      tempCtx.fillStyle = "#475569";
       tempCtx.fillText(group, padding, y + 12);
       y += groupHeight;
-    }
-    if (groupCount) {
-      tempCtx.font = metaFont;
-      tempCtx.fillStyle = "#64748b";
-      tempCtx.fillText(`Antal svar: ${groupCount}`, padding, y + 12);
-      y += countHeight;
     }
 
     tempCtx.drawImage(canvas, padding, y, canvas.width, canvas.height);
@@ -883,14 +848,9 @@ function getCardChartImages(card) {
     .flatMap((canvas) => {
       try {
         if (canvas.dataset.copyLegend) {
-          const images = [];
-          const headerImage = buildSingleChoiceHeaderImage(canvas);
-          if (headerImage) images.push(headerImage);
-          const chartImage = buildSingleChoiceChartImage(canvas);
-          if (chartImage) images.push(chartImage);
-          return images;
+          return buildSingleChoiceCopyImage(canvas);
         }
-        return [canvas.toDataURL("image/png")];
+        return canvas.toDataURL("image/png");
       } catch (err) {
         console.warn("Kunde inte läsa canvas för kopiering", err);
         return [];
@@ -1398,8 +1358,7 @@ function renderSingle(question, rows) {
 
     canvas.dataset.copyTitle = question;
     canvas.dataset.copySubtitle = `Antal svar: ${total}`;
-    canvas.dataset.copyGroup = state.groupBy !== "none" ? g.key : "Totalt";
-    canvas.dataset.copyGroupCount = String(total);
+    canvas.dataset.copyGroup = state.groupBy !== "none" ? g.key : "";
     canvas.dataset.copyLegend = JSON.stringify(
       entries.slice(0, 12).map((entry, idx) => ({
         label: entry.name,
