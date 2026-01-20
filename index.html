@@ -172,10 +172,20 @@ const DEFAULT_CHOICE_COLORS = {
   maybe: "#F59E0B",
 };
 
-const PIE_PALETTE = [
-  "#1D4ED8", "#DC2626", "#059669", "#F59E0B", "#7C3AED",
-  "#0EA5E9", "#BE185D", "#16A34A", "#B45309", "#374151",
+const STANDARD_PALETTE = [
+  { label: "Blå", value: "#2563EB" },
+  { label: "Indigo", value: "#4F46E5" },
+  { label: "Lila", value: "#7C3AED" },
+  { label: "Turkos", value: "#0EA5E9" },
+  { label: "Grön", value: "#10B981" },
+  { label: "Olivgrön", value: "#22C55E" },
+  { label: "Gul", value: "#F59E0B" },
+  { label: "Orange", value: "#F97316" },
+  { label: "Röd", value: "#EF4444" },
+  { label: "Skiffer", value: "#64748B" },
 ];
+
+const PIE_PALETTE = STANDARD_PALETTE.map((item) => item.value);
 
 const state = {
   mode: "setup",
@@ -1030,19 +1040,32 @@ function renderSingle(question, rows) {
   options.forEach((opt, idx) => {
     const lab = document.createElement("label");
     lab.className = "flex items-center gap-2 text-xs text-slate-600";
-    const input = document.createElement("input");
-    input.type = "color";
-    input.value = getOptionColor(question, opt, idx);
-    input.className = "w-8 h-6 rounded border border-slate-300";
-    input.addEventListener("input", () => {
+    const swatch = document.createElement("span");
+    swatch.className = "inline-block w-4 h-4 rounded-full border border-slate-300";
+    const select = document.createElement("select");
+    select.className = "text-xs";
+    const current = getOptionColor(question, opt, idx);
+    STANDARD_PALETTE.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.value;
+      option.textContent = item.label;
+      select.appendChild(option);
+    });
+    select.value = STANDARD_PALETTE.some((item) => item.value === current)
+      ? current
+      : STANDARD_PALETTE[idx % STANDARD_PALETTE.length].value;
+    swatch.style.background = select.value;
+    select.addEventListener("change", () => {
       state.pieColorMap[question] ||= {};
-      state.pieColorMap[question][opt] = input.value;
+      state.pieColorMap[question][opt] = select.value;
+      swatch.style.background = select.value;
       renderDashboard();
     });
     const span = document.createElement("span");
     span.className = "max-w-[220px] truncate";
     span.textContent = opt;
-    lab.appendChild(input);
+    lab.appendChild(swatch);
+    lab.appendChild(select);
     lab.appendChild(span);
     grid.appendChild(lab);
   });
