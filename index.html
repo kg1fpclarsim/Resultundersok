@@ -845,7 +845,7 @@ function buildSingleChoiceCopyImage(canvas) {
 
 function getCardChartImages(card) {
   return Array.from(card.querySelectorAll("canvas"))
-    .map((canvas) => {
+    .flatMap((canvas) => {
       try {
         if (canvas.dataset.copyLegend) {
           return buildSingleChoiceCopyImage(canvas);
@@ -853,7 +853,7 @@ function getCardChartImages(card) {
         return canvas.toDataURL("image/png");
       } catch (err) {
         console.warn("Kunde inte läsa canvas för kopiering", err);
-        return null;
+        return [];
       }
     })
     .filter(Boolean);
