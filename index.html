@@ -741,14 +741,159 @@ function buildCopyContent(payload, chartImages = [], options = {}) {
   return { text, html };
 }
 
+function buildLegendLines(ctx, entries, maxWidth) {
+  const lines = [];
+  let current = [];
+  let currentWidth = 0;
+  const dotSize = 4;
+  const gap = 6;
+  const itemGap = 12;
+  entries.forEach((entry) => {
+    const textWidth = ctx.measureText(entry.label).width;
+    const itemWidth = dotSize * 2 + gap + textWidth + itemGap;
+    if (current.length && currentWidth + itemWidth > maxWidth) {
+      lines.push(current);
+      current = [];
+      currentWidth = 0;
+    }
+    current.push({ ...entry, textWidth });
+    currentWidth += itemWidth;
+  });
+  if (current.length) lines.push(current);
+  return lines;
+}
+
+function buildSingleChoiceHeaderImage(canvas) {
+  try {
+    const title = canvas.dataset.copyTitle || "";
+    const subtitle = canvas.dataset.copySubtitle || "";
+    const padding = 16;
+    const maxWidth = canvas.width;
+    const titleFont = "700 16px system-ui, -apple-system, sans-serif";
+    const metaFont = "12px system-ui, -apple-system, sans-serif";
+    const titleHeight = title ? 20 : 0;
+    const subtitleHeight = subtitle ? 16 : 0;
+    const contentHeight = titleHeight + subtitleHeight;
+    const totalHeight = contentHeight + padding * 2;
+    const totalWidth = maxWidth + padding * 2;
+    const dpr = window.devicePixelRatio || 1;
+
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
+    tempCanvas.width = totalWidth * dpr;
+    tempCanvas.height = totalHeight * dpr;
+    tempCtx.scale(dpr, dpr);
+    tempCtx.fillStyle = "#ffffff";
+    tempCtx.fillRect(0, 0, totalWidth, totalHeight);
+
+    let y = padding;
+    if (title) {
+      tempCtx.font = titleFont;
+      tempCtx.fillStyle = "#1e293b";
+      tempCtx.fillText(title, padding, y + 14);
+      y += titleHeight;
+    }
+    if (subtitle) {
+      tempCtx.font = metaFont;
+      tempCtx.fillStyle = "#64748b";
+      tempCtx.fillText(subtitle, padding, y + 12);
+      y += subtitleHeight;
+    }
+
+    return tempCanvas.toDataURL("image/png");
+  } catch (err) {
+    console.warn("Kunde inte bygga rubrikbild", err);
+    return null;
+  }
+}
+
+function buildSingleChoiceChartImage(canvas) {
+  try {
+    const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
+    const group = canvas.dataset.copyGroup || "";
+    const groupCount = canvas.dataset.copyGroupCount || "";
+    const padding = 16;
+    const maxWidth = canvas.width;
+    const metaFont = "12px system-ui, -apple-system, sans-serif";
+    const legendFont = "12px system-ui, -apple-system, sans-serif";
+    const lineHeight = 16;
+
+    const tempCanvas = document.createElement("canvas");
+    const tempCtx = tempCanvas.getContext("2d");
+    tempCtx.font = legendFont;
+    const legendLines = legend.length ? buildLegendLines(tempCtx, legend, maxWidth) : [];
+    const legendHeight = legendLines.length ? legendLines.length * lineHeight + 8 : 0;
+    const groupHeight = group ? 16 : 0;
+    const countHeight = groupCount ? 16 : 0;
+    const contentHeight = groupHeight + countHeight + canvas.height + legendHeight;
+    const totalHeight = contentHeight + padding * 2;
+    const totalWidth = maxWidth + padding * 2;
+    const dpr = window.devicePixelRatio || 1;
+
+    tempCanvas.width = totalWidth * dpr;
+    tempCanvas.height = totalHeight * dpr;
+    tempCtx.scale(dpr, dpr);
+    tempCtx.fillStyle = "#ffffff";
+    tempCtx.fillRect(0, 0, totalWidth, totalHeight);
+
+    let y = padding;
+    if (group) {
+      tempCtx.font = metaFont;
+      tempCtx.fillStyle = "#1e293b";
+      tempCtx.fillText(group, padding, y + 12);
+      y += groupHeight;
+    }
+    if (groupCount) {
+      tempCtx.font = metaFont;
+      tempCtx.fillStyle = "#64748b";
+      tempCtx.fillText(`Antal svar: ${groupCount}`, padding, y + 12);
+      y += countHeight;
+    }
+
+    tempCtx.drawImage(canvas, padding, y, canvas.width, canvas.height);
+    y += canvas.height + 8;
+
+    if (legendLines.length) {
+      tempCtx.font = legendFont;
+      legendLines.forEach((line) => {
+        let x = padding;
+        line.forEach((entry) => {
+          tempCtx.fillStyle = entry.color;
+          tempCtx.beginPath();
+          tempCtx.arc(x + 4, y + 5, 4, 0, Math.PI * 2);
+          tempCtx.fill();
+          x += 10;
+          tempCtx.fillStyle = "#64748b";
+          tempCtx.fillText(entry.label, x, y + 9);
+          x += entry.textWidth + 12;
+        });
+        y += lineHeight;
+      });
+    }
+
+    return tempCanvas.toDataURL("image/png");
+  } catch (err) {
+    console.warn("Kunde inte bygga kopierad bild", err);
+    return canvas.toDataURL("image/png");
+  }
+}
+
 function getCardChartImages(card) {
   return Array.from(card.querySelectorAll("canvas"))
-    .map((canvas) => {
+    .flatMap((canvas) => {
       try {
-        return canvas.toDataURL("image/png");
+        if (canvas.dataset.copyLegend) {
+          const images = [];
+          const headerImage = buildSingleChoiceHeaderImage(canvas);
+          if (headerImage) images.push(headerImage);
+          const chartImage = buildSingleChoiceChartImage(canvas);
+          if (chartImage) images.push(chartImage);
+          return images;
+        }
+        return [canvas.toDataURL("image/png")];
       } catch (err) {
         console.warn("Kunde inte läsa canvas för kopiering", err);
-        return null;
+        return [];
       }
     })
     .filter(Boolean);
@@ -1250,6 +1395,17 @@ function renderSingle(question, rows) {
       it.innerHTML = `<span class="inline-block w-2 h-2 rounded-full" style="background:${getOptionColor(question,e.name, optionIndex[e.name] ?? idx)}"></span><span class="truncate max-w-[140px]">${escapeHtml(e.name)}</span>`;
       legend.appendChild(it);
     });
+
+    canvas.dataset.copyTitle = question;
+    canvas.dataset.copySubtitle = `Antal svar: ${total}`;
+    canvas.dataset.copyGroup = state.groupBy !== "none" ? g.key : "Totalt";
+    canvas.dataset.copyGroupCount = String(total);
+    canvas.dataset.copyLegend = JSON.stringify(
+      entries.slice(0, 12).map((entry, idx) => ({
+        label: entry.name,
+        color: getOptionColor(question, entry.name, optionIndex[entry.name] ?? idx),
+      }))
+    );
 
     box.appendChild(legend);
     wrap.appendChild(box);
