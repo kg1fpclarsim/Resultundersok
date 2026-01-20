@@ -560,6 +560,22 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 }
 
+function getContrastingTextColor(hex) {
+  const clean = String(hex).replace("#", "");
+  if (clean.length !== 6) return "#0F172A";
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 150 ? "#0F172A" : "#FFFFFF";
+}
+
+function applyColorToSelect(selectEl, color) {
+  selectEl.style.backgroundColor = color;
+  selectEl.style.color = getContrastingTextColor(color);
+  selectEl.style.borderColor = "rgba(15, 23, 42, 0.15)";
+}
+
 function formatPct(value) {
   return `${value.toFixed(1)}%`;
 }
@@ -1028,22 +1044,24 @@ function renderSingle(question, rows) {
     if (!v) return;
     allCounts[v] = (allCounts[v]||0) + 1;
   });
-  const options = Object.keys(allCounts).sort((a,b)=>allCounts[b]-allCounts[a]).slice(0, 14);
+  const options = Object.keys(allCounts).sort((a,b)=>allCounts[b]-allCounts[a]);
+  const optionIndex = Object.fromEntries(options.map((opt, idx) => [opt, idx]));
 
   // färgpanel
   const panel = document.createElement("div");
   panel.className = "mb-6 p-3 bg-slate-50 border border-slate-200 rounded-lg";
   panel.innerHTML = '<div class="text-xs font-semibold text-slate-600 mb-2">Färger för svarsalternativ</div>';
   const grid = document.createElement("div");
-  grid.className = "flex flex-wrap gap-3";
+  grid.className = "grid gap-2";
 
   options.forEach((opt, idx) => {
     const lab = document.createElement("label");
-    lab.className = "flex items-center gap-2 text-xs text-slate-600";
-    const swatch = document.createElement("span");
-    swatch.className = "inline-block w-4 h-4 rounded-full border border-slate-300";
+    lab.className = "flex items-center justify-between gap-3 text-xs text-slate-600";
+    const labelText = document.createElement("span");
+    labelText.className = "max-w-[260px] truncate";
+    labelText.textContent = opt;
     const select = document.createElement("select");
-    select.className = "text-xs";
+    select.className = "text-xs min-w-[140px]";
     const current = getOptionColor(question, opt, idx);
     STANDARD_PALETTE.forEach((item) => {
       const option = document.createElement("option");
@@ -1054,19 +1072,15 @@ function renderSingle(question, rows) {
     select.value = STANDARD_PALETTE.some((item) => item.value === current)
       ? current
       : STANDARD_PALETTE[idx % STANDARD_PALETTE.length].value;
-    swatch.style.background = select.value;
+    applyColorToSelect(select, select.value);
     select.addEventListener("change", () => {
       state.pieColorMap[question] ||= {};
       state.pieColorMap[question][opt] = select.value;
-      swatch.style.background = select.value;
+      applyColorToSelect(select, select.value);
       renderDashboard();
     });
-    const span = document.createElement("span");
-    span.className = "max-w-[220px] truncate";
-    span.textContent = opt;
-    lab.appendChild(swatch);
+    lab.appendChild(labelText);
     lab.appendChild(select);
-    lab.appendChild(span);
     grid.appendChild(lab);
   });
 
@@ -1113,7 +1127,7 @@ function renderSingle(question, rows) {
 
     const labels = entries.map(e => e.name);
     const data = entries.map(e => e.value);
-    const colors = entries.map((e, idx) => getOptionColor(question, e.name, idx));
+    const colors = entries.map((e, idx) => getOptionColor(question, e.name, optionIndex[e.name] ?? idx));
 
     const chart = new Chart(canvas.getContext("2d"), {
       type: "doughnut",
@@ -1142,7 +1156,7 @@ function renderSingle(question, rows) {
     entries.slice(0, 12).forEach((e, idx) => {
       const it = document.createElement("div");
       it.className = "flex items-center gap-1 text-[11px] text-slate-500";
-      it.innerHTML = `<span class="inline-block w-2 h-2 rounded-full" style="background:${getOptionColor(question,e.name,idx)}"></span><span class="truncate max-w-[140px]">${escapeHtml(e.name)}</span>`;
+      it.innerHTML = `<span class="inline-block w-2 h-2 rounded-full" style="background:${getOptionColor(question,e.name, optionIndex[e.name] ?? idx)}"></span><span class="truncate max-w-[140px]">${escapeHtml(e.name)}</span>`;
       legend.appendChild(it);
     });
 
