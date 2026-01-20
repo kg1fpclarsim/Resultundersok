@@ -63,12 +63,24 @@
               Välj fil
               <input id="fileInput" type="file" accept=".csv,text/csv" class="hidden" />
             </label>
+            <label class="btn cursor-pointer">
+              Välj mapp
+              <input id="folderInput" type="file" webkitdirectory directory multiple class="hidden" />
+            </label>
             <button id="btnDemo" class="btn">Använd testdata</button>
             <button id="btnReset" class="btn btn-danger">Börja om</button>
           </div>
         </div>
 
-        <div id="fileInfo" class="mt-4 text-sm text-slate-600 hidden"></div>
+        <div class="mt-4 space-y-2">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+            <label class="text-xs font-semibold text-slate-600">CSV från mapp</label>
+            <select id="folderSelect" class="flex-1" disabled>
+              <option value="">Välj en mapp för att lista filer</option>
+            </select>
+          </div>
+          <div id="fileInfo" class="text-sm text-slate-600 hidden"></div>
+        </div>
       </div>
 
       <div class="card p-6">
@@ -92,6 +104,7 @@
       <div class="card p-6">
         <div class="text-lg font-bold mb-2">Tips</div>
         <ul class="list-disc pl-5 text-sm text-slate-700 space-y-1">
+          <li>För lokal körning: lägg CSV-filer i en mapp som heter <span class="font-semibold">csv-filer</span> och välj den via <span class="font-semibold">Välj mapp</span>.</li>
           <li>Markera bakgrundsdata (Avdelning, Bolag, Roll osv) som <span class="font-semibold">Filter</span>.</li>
           <li>Likert behöver texter som matchar dina svarsalternativ (1–7).</li>
           <li>Flerval och rangordning ska vara semikolon-separerade i cellen.</li>
@@ -195,8 +208,12 @@ const state = {
   groupBy: "none",
   pieColorMap: {},    // question -> option -> hex
   charts: new Map(),  // canvasEl -> chart instance
+  folderFiles: [],
+  currentFileKey: "",
+  currentFileLabel: "",
 };
 const cardCopyData = new WeakMap();
+const STORAGE_PREFIX = "resultundersok.mapping.";
 
 // =========================
 // Utilities
@@ -227,6 +244,79 @@ function parseCSV(text) {
     const out = {};
     for (const k in r) out[k] = String(r[k] ?? "").trim();
     return out;
+  });
+}
+
+function getFileKey(file) {
+  if (!file) return "";
+  const path = file.webkitRelativePath || file.name;
+  return `${path}::${file.size}`;
+}
+
+function loadStoredMapping(fileKey) {
+  if (!fileKey) return null;
+  try {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${fileKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (err) {
+    console.warn("Kunde inte läsa mappning", err);
+    return null;
+  }
+}
+
+function storeMapping(fileKey, config) {
+  if (!fileKey || !config) return;
+  try {
+    localStorage.setItem(`${STORAGE_PREFIX}${fileKey}`, JSON.stringify(config));
+  } catch (err) {
+    console.warn("Kunde inte spara mappning", err);
+  }
+}
+
+function setFileInfo(message) {
+  const info = $("fileInfo");
+  info.classList.toggle("hidden", !message);
+  info.textContent = message || "";
+}
+
+function loadCsvFile(file, labelOverride) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || "");
+    state.raw = parseCSV(text);
+    const key = getFileKey(file);
+    state.currentFileKey = key;
+    state.currentFileLabel = labelOverride || file.name;
+    const stored = loadStoredMapping(key);
+    state.config = stored || autoDetectConfig(state.raw);
+    if (stored) {
+      setFileInfo(`${state.currentFileLabel} laddad. Rader: ${state.raw.length}. Mappning återställd.`);
+    } else {
+      setFileInfo(`${state.currentFileLabel} laddad. Rader: ${state.raw.length}`);
+    }
+    renderMapping();
+  };
+  reader.readAsText(file);
+}
+
+function renderFolderSelect() {
+  const select = $("folderSelect");
+  if (!state.folderFiles.length) {
+    select.disabled = true;
+    select.innerHTML = '<option value="">Välj en mapp för att lista filer</option>';
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = '<option value="">Välj fil från mappen...</option>';
+  state.folderFiles.forEach((file, idx) => {
+    const opt = document.createElement("option");
+    const label = file.webkitRelativePath || file.name;
+    opt.value = String(idx);
+    opt.textContent = label;
+    select.appendChild(opt);
   });
 }
 
@@ -391,6 +481,7 @@ function renderMapping() {
     sel.value = state.config[h] || "text";
     sel.addEventListener("change", () => {
       state.config[h] = sel.value;
+      storeMapping(state.currentFileKey, state.config);
     });
 
     row.appendChild(left);
@@ -1484,8 +1575,13 @@ $("btnReset").addEventListener("click", () => {
   state.filters = {};
   state.groupBy = "none";
   state.pieColorMap = {};
+  state.folderFiles = [];
+  state.currentFileKey = "";
+  state.currentFileLabel = "";
   $("fileInput").value = "";
-  $("fileInfo").classList.add("hidden");
+  $("folderInput").value = "";
+  setFileInfo("");
+  renderFolderSelect();
   renderMapping();
   setMode("setup");
 });
@@ -1493,26 +1589,45 @@ $("btnReset").addEventListener("click", () => {
 $("btnDemo").addEventListener("click", () => {
   state.raw = generateDemoData();
   state.config = autoDetectConfig(state.raw);
-  $("fileInfo").classList.remove("hidden");
-  $("fileInfo").textContent = `Testdata laddad. Rader: ${state.raw.length}`;
+  state.currentFileKey = "";
+  state.currentFileLabel = "Testdata";
+  setFileInfo(`Testdata laddad. Rader: ${state.raw.length}`);
   renderMapping();
 });
 
 $("btnAuto").addEventListener("click", () => {
   if (!state.raw.length) return;
   state.config = autoDetectConfig(state.raw);
+  storeMapping(state.currentFileKey, state.config);
   renderMapping();
+});
+
+$("folderInput").addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []).filter((file) =>
+    String(file.name || "").toLowerCase().endsWith(".csv")
+  );
+  state.folderFiles = files;
+  renderFolderSelect();
+  if (!files.length) {
+    setFileInfo("Inga CSV-filer hittades i mappen.");
+    return;
+  }
+  $("folderSelect").value = "0";
+  loadCsvFile(files[0], files[0].webkitRelativePath || files[0].name);
+});
+
+$("folderSelect").addEventListener("change", (e) => {
+  const idx = Number(e.target.value);
+  if (Number.isNaN(idx)) return;
+  const file = state.folderFiles[idx];
+  if (!file) return;
+  loadCsvFile(file, file.webkitRelativePath || file.name);
 });
 
 $("fileInput").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
-  const text = await file.text();
-  state.raw = parseCSV(text);
-  state.config = autoDetectConfig(state.raw);
-  $("fileInfo").classList.remove("hidden");
-  $("fileInfo").textContent = `${file.name} laddad. Rader: ${state.raw.length}`;
-  renderMapping();
+  loadCsvFile(file, file.name);
 });
 
 $("btnGenerate").addEventListener("click", () => {
@@ -1539,6 +1654,7 @@ $("btnClearFilters").addEventListener("click", () => {
 
 // Startläge
 renderMapping();
+renderFolderSelect();
 setMode("setup");
 </script>
 </body>
