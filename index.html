@@ -1837,10 +1837,7 @@ function renderRank(question, rows) {
       const groupLabel = state.groupBy !== "none"
         ? `${g.key} (n=${groupAnswers})`
         : `Totalt (n=${groupAnswers})`;
-      createRankRadar(section, stats, groupLabel, {
-        title: question,
-        subtitle: `Antal svar: ${groupAnswers}`,
-      });
+      createRankRadar(section, stats, groupLabel);
     } else {
       const list = document.createElement("div");
       list.className = "space-y-3";
