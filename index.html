@@ -129,6 +129,11 @@
             <select id="groupBy" class="w-full mt-1">
               <option value="none">Ingen (Totalt)</option>
             </select>
+            <label class="text-xs text-slate-600 mt-3 block">Rangordningsfrågor</label>
+            <select id="rankDisplay" class="w-full mt-1">
+              <option value="list">Lista</option>
+              <option value="radar">Radar-diagram</option>
+            </select>
           </div>
 
           <div class="pt-4 border-t border-slate-200">
@@ -211,6 +216,7 @@ const state = {
   folderFiles: [],
   currentFileKey: "",
   currentFileLabel: "",
+  rankDisplay: "list",
 };
 const cardCopyData = new WeakMap();
 const STORAGE_PREFIX = "resultundersok.mapping.";
@@ -539,6 +545,13 @@ function renderDashboard() {
   gb.value = state.groupBy;
   gb.onchange = () => {
     state.groupBy = gb.value;
+    renderDashboard();
+  };
+
+  const rankDisplay = $("rankDisplay");
+  rankDisplay.value = state.rankDisplay;
+  rankDisplay.onchange = () => {
+    state.rankDisplay = rankDisplay.value;
     renderDashboard();
   };
 
@@ -1708,6 +1721,63 @@ function rankStats(rows, question) {
   return Object.keys(scores).map(k=>({name:k,score:scores[k],mentions:counts[k]})).sort((a,b)=>b.score-a.score);
 }
 
+function rankRadarHeight(itemCount) {
+  return clamp(280 + itemCount * 14, 320, 560);
+}
+
+function createRankRadar(section, stats, groupLabel) {
+  const box = document.createElement("div");
+  box.style.height = `${rankRadarHeight(stats.length)}px`;
+
+  const canvas = document.createElement("canvas");
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  box.appendChild(canvas);
+  section.appendChild(box);
+
+  const maxScore = Math.max(...stats.map((item) => item.score), 1);
+  const chart = new Chart(canvas.getContext("2d"), {
+    type: "radar",
+    data: {
+      labels: stats.map((item) => item.name),
+      datasets: [{
+        label: groupLabel,
+        data: stats.map((item) => item.score),
+        fill: true,
+        borderColor: "#2563EB",
+        backgroundColor: "rgba(37, 99, 235, 0.22)",
+        pointBackgroundColor: "#1D4ED8",
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          suggestedMax: maxScore,
+          ticks: {
+            stepSize: Math.max(1, Math.ceil(maxScore / 4)),
+            showLabelBackdrop: false,
+          },
+          grid: { color: "#e2e8f0" },
+          angleLines: { color: "#e2e8f0" },
+          pointLabels: {
+            color: "#334155",
+            font: { size: 11 },
+          },
+        },
+      },
+    },
+  });
+
+  canvas.dataset.copyGroup = groupLabel;
+  state.charts.set(canvas, chart);
+}
+
 function renderRank(question, rows) {
   const groups = groupRows(rows);
 
@@ -1743,35 +1813,42 @@ function renderRank(question, rows) {
       section.appendChild(head);
     }
 
-    const list = document.createElement("div");
-    list.className = "space-y-3";
+    if (state.rankDisplay === "radar") {
+      const groupLabel = state.groupBy !== "none"
+        ? `${g.key} (n=${countAnswers(question, g.rows, "rank")})`
+        : `Totalt (n=${countAnswers(question, g.rows, "rank")})`;
+      createRankRadar(section, stats, groupLabel);
+    } else {
+      const list = document.createElement("div");
+      list.className = "space-y-3";
 
-    stats.forEach((it, idx) => {
-      const row = document.createElement("div");
-      row.className = "space-y-1";
-      const top = document.createElement("div");
-      top.className = "flex items-center justify-between text-sm";
-      top.innerHTML = `
-        <div class="flex items-center gap-2">
-          <span class="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center ${idx===0?"bg-yellow-500":idx===1?"bg-slate-400":idx===2?"bg-orange-400":"bg-slate-200 text-slate-600"}">${idx+1}</span>
-          <span class="font-semibold text-slate-700">${escapeHtml(it.name)}</span>
-        </div>
-        <div class="text-xs text-slate-500">${it.score} poäng</div>
-      `;
+      stats.forEach((it, idx) => {
+        const row = document.createElement("div");
+        row.className = "space-y-1";
+        const top = document.createElement("div");
+        top.className = "flex items-center justify-between text-sm";
+        top.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center ${idx===0?"bg-yellow-500":idx===1?"bg-slate-400":idx===2?"bg-orange-400":"bg-slate-200 text-slate-600"}">${idx+1}</span>
+            <span class="font-semibold text-slate-700">${escapeHtml(it.name)}</span>
+          </div>
+          <div class="text-xs text-slate-500">${it.score} poäng</div>
+        `;
 
-      const barWrap = document.createElement("div");
-      barWrap.className = "w-full bg-slate-100 rounded-full h-2 overflow-hidden";
-      const bar = document.createElement("div");
-      bar.className = "h-full bg-blue-500 rounded-full";
-      bar.style.width = `${(it.score / stats[0].score) * 100}%`;
-      barWrap.appendChild(bar);
+        const barWrap = document.createElement("div");
+        barWrap.className = "w-full bg-slate-100 rounded-full h-2 overflow-hidden";
+        const bar = document.createElement("div");
+        bar.className = "h-full bg-blue-500 rounded-full";
+        bar.style.width = `${(it.score / stats[0].score) * 100}%`;
+        barWrap.appendChild(bar);
 
-      row.appendChild(top);
-      row.appendChild(barWrap);
-      list.appendChild(row);
-    });
+        row.appendChild(top);
+        row.appendChild(barWrap);
+        list.appendChild(row);
+      });
 
-    section.appendChild(list);
+      section.appendChild(list);
+    }
     wrap.appendChild(section);
   });
 
@@ -1853,6 +1930,7 @@ $("btnReset").addEventListener("click", () => {
   state.folderFiles = [];
   state.currentFileKey = "";
   state.currentFileLabel = "";
+  state.rankDisplay = "list";
   $("fileInput").value = "";
   $("folderInput").value = "";
   setFileInfo("");
@@ -1924,6 +2002,7 @@ $("btnGenerate").addEventListener("click", () => {
 $("btnClearFilters").addEventListener("click", () => {
   state.filters = {};
   state.groupBy = "none";
+  state.rankDisplay = "list";
   renderDashboard();
 });
 
