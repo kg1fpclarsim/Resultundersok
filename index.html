@@ -801,10 +801,10 @@ function buildLegendLines(ctx, entries, maxWidth) {
 
 function buildCanvasCopyImage(canvas) {
   try {
-    const title = canvas.dataset.copyTitle || "";
-    const subtitle = canvas.dataset.copySubtitle || "";
-    const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
     const group = canvas.dataset.copyGroup || "";
+    const title = group ? "" : (canvas.dataset.copyTitle || "");
+    const subtitle = group ? "" : (canvas.dataset.copySubtitle || "");
+    const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
     const padding = 16;
     const maxWidth = canvas.width;
     const titleFont = "600 14px system-ui, -apple-system, sans-serif";
