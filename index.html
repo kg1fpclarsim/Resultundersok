@@ -799,12 +799,15 @@ function buildLegendLines(ctx, entries, maxWidth) {
   return lines;
 }
 
-function buildSingleChoiceCopyImage(canvas) {
+function buildCanvasCopyImage(canvas) {
   try {
+    const title = canvas.dataset.copyTitle || "";
+    const subtitle = canvas.dataset.copySubtitle || "";
     const legend = JSON.parse(canvas.dataset.copyLegend || "[]");
     const group = canvas.dataset.copyGroup || "";
     const padding = 16;
     const maxWidth = canvas.width;
+    const titleFont = "600 14px system-ui, -apple-system, sans-serif";
     const metaFont = "12px system-ui, -apple-system, sans-serif";
     const legendFont = "12px system-ui, -apple-system, sans-serif";
     const lineHeight = 16;
@@ -814,8 +817,10 @@ function buildSingleChoiceCopyImage(canvas) {
     tempCtx.font = legendFont;
     const legendLines = legend.length ? buildLegendLines(tempCtx, legend, maxWidth) : [];
     const legendHeight = legendLines.length ? legendLines.length * lineHeight + 8 : 0;
+    const titleHeight = title ? 22 : 0;
+    const subtitleHeight = subtitle ? 16 : 0;
     const groupHeight = group ? 16 : 0;
-    const contentHeight = groupHeight + canvas.height + legendHeight;
+    const contentHeight = titleHeight + subtitleHeight + groupHeight + canvas.height + legendHeight;
     const totalHeight = contentHeight + padding * 2;
     const totalWidth = maxWidth + padding * 2;
     const dpr = window.devicePixelRatio || 1;
@@ -827,6 +832,18 @@ function buildSingleChoiceCopyImage(canvas) {
     tempCtx.fillRect(0, 0, totalWidth, totalHeight);
 
     let y = padding;
+    if (title) {
+      tempCtx.font = titleFont;
+      tempCtx.fillStyle = "#0f172a";
+      tempCtx.fillText(title, padding, y + 14);
+      y += titleHeight;
+    }
+    if (subtitle) {
+      tempCtx.font = metaFont;
+      tempCtx.fillStyle = "#475569";
+      tempCtx.fillText(subtitle, padding, y + 12);
+      y += subtitleHeight;
+    }
     if (group) {
       tempCtx.font = metaFont;
       tempCtx.fillStyle = "#475569";
@@ -1007,8 +1024,8 @@ function getCardChartImages(card) {
   return Array.from(card.querySelectorAll("canvas"))
     .flatMap((canvas) => {
       try {
-        if (canvas.dataset.copyLegend) {
-          return buildSingleChoiceCopyImage(canvas);
+        if (canvas.dataset.copyTitle || canvas.dataset.copySubtitle || canvas.dataset.copyGroup || canvas.dataset.copyLegend) {
+          return buildCanvasCopyImage(canvas);
         }
         return canvas.toDataURL("image/png");
       } catch (err) {
@@ -1725,7 +1742,7 @@ function rankRadarHeight(itemCount) {
   return clamp(280 + itemCount * 14, 320, 560);
 }
 
-function createRankRadar(section, stats, groupLabel) {
+function createRankRadar(section, stats, groupLabel, copyMeta = {}) {
   const box = document.createElement("div");
   box.style.height = `${rankRadarHeight(stats.length)}px`;
 
@@ -1775,6 +1792,8 @@ function createRankRadar(section, stats, groupLabel) {
   });
 
   canvas.dataset.copyGroup = groupLabel;
+  if (copyMeta.title) canvas.dataset.copyTitle = copyMeta.title;
+  if (copyMeta.subtitle) canvas.dataset.copySubtitle = copyMeta.subtitle;
   state.charts.set(canvas, chart);
 }
 
@@ -1814,10 +1833,14 @@ function renderRank(question, rows) {
     }
 
     if (state.rankDisplay === "radar") {
+      const groupAnswers = countAnswers(question, g.rows, "rank");
       const groupLabel = state.groupBy !== "none"
-        ? `${g.key} (n=${countAnswers(question, g.rows, "rank")})`
-        : `Totalt (n=${countAnswers(question, g.rows, "rank")})`;
-      createRankRadar(section, stats, groupLabel);
+        ? `${g.key} (n=${groupAnswers})`
+        : `Totalt (n=${groupAnswers})`;
+      createRankRadar(section, stats, groupLabel, {
+        title: question,
+        subtitle: `Antal svar: ${groupAnswers}`,
+      });
     } else {
       const list = document.createElement("div");
       list.className = "space-y-3";
