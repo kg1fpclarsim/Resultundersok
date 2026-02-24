@@ -1107,6 +1107,10 @@ function countAnswers(question, rows, type) {
   return rows.reduce((sum, r) => sum + ((r[question] || "").trim() ? 1 : 0), 0);
 }
 
+function formatGroupLabel(groupName, answers) {
+  return `${groupName} (n=${answers})`;
+}
+
 // -------- NPS (gauge per group) --------
 
 function calcNps(rows, question) {
@@ -1256,7 +1260,9 @@ function renderNps(question, rows) {
     const s = calcNps(g.rows, question);
     if (!s) return;
     any = true;
-    const label = state.groupBy && state.groupBy !== "none" ? `${g.key} (n=${s.total})` : null;
+    const label = state.groupBy && state.groupBy !== "none"
+      ? formatGroupLabel(g.key, s.total)
+      : formatGroupLabel("Totalt", s.total);
     wrap.appendChild(renderNpsCard(s, label));
   });
 
@@ -1395,6 +1401,18 @@ function renderLikert(question, rows) {
     }
   });
 
+  canvas.dataset.copyTitle = question;
+  canvas.dataset.copySubtitle = `Antal svar: ${totalAnswers}`;
+  canvas.dataset.copyLegend = JSON.stringify([
+    { label: LIKERT_LABELS[1], color: LIKERT_COLORS[1] },
+    { label: LIKERT_LABELS[2], color: LIKERT_COLORS[2] },
+    { label: LIKERT_LABELS[3], color: LIKERT_COLORS[3] },
+    { label: LIKERT_LABELS[4], color: LIKERT_COLORS[4] },
+    { label: LIKERT_LABELS[5], color: LIKERT_COLORS[5] },
+    { label: LIKERT_LABELS[6], color: LIKERT_COLORS[6] },
+    { label: LIKERT_LABELS[7], color: LIKERT_COLORS[7] },
+  ]);
+
   state.charts.set(canvas, chart);
   return c;
 }
@@ -1503,7 +1521,7 @@ function renderSingle(question, rows) {
     if (state.groupBy !== "none") {
       const h = document.createElement("div");
       h.className = "font-semibold text-slate-600 mb-2 border-b border-slate-200 pb-1";
-      h.textContent = `${g.key} (n=${total})`;
+      h.textContent = formatGroupLabel(g.key, total);
       box.appendChild(h);
     }
 
@@ -1548,7 +1566,7 @@ function renderSingle(question, rows) {
 
     canvas.dataset.copyTitle = question;
     canvas.dataset.copySubtitle = `Antal svar: ${total}`;
-    canvas.dataset.copyGroup = state.groupBy !== "none" ? `${g.key} (n=${total})` : "";
+    canvas.dataset.copyGroup = formatGroupLabel(state.groupBy !== "none" ? g.key : "Totalt", total);
     canvas.dataset.copyLegend = JSON.stringify(
       entries.slice(0, 12).map((entry, idx) => ({
         label: entry.name,
@@ -1613,7 +1631,7 @@ function renderMulti(question, rows) {
 
       const head = document.createElement("div");
       head.className = "text-sm font-semibold text-slate-600 border-b border-slate-200 pb-1";
-      head.textContent = `${g.key} (n=${countAnswers(question, g.rows, "multi")})`;
+      head.textContent = formatGroupLabel(g.key, groupTotalAnswers);
       section.appendChild(head);
 
       const h = Math.min(900, Math.max(240, entries.length * 26 + 80));
@@ -1651,6 +1669,10 @@ function renderMulti(question, rows) {
           },
         },
       });
+
+      canvas.dataset.copyTitle = question;
+      canvas.dataset.copySubtitle = `Antal svar: ${groupTotalAnswers}`;
+      canvas.dataset.copyGroup = formatGroupLabel(g.key, groupTotalAnswers);
 
       state.charts.set(canvas, chart);
       wrap.appendChild(section);
@@ -1716,6 +1738,10 @@ function renderMulti(question, rows) {
       scales: { x: { grid: { display: false } }, y: { grid: { display: false } } },
     },
   });
+
+  canvas.dataset.copyTitle = question;
+  canvas.dataset.copySubtitle = `Antal svar: ${totalAnswers}`;
+  canvas.dataset.copyGroup = formatGroupLabel("Totalt", totalAnswers);
 
   state.charts.set(canvas, chart);
   return c;
@@ -1834,9 +1860,7 @@ function renderRank(question, rows) {
 
     if (state.rankDisplay === "radar") {
       const groupAnswers = countAnswers(question, g.rows, "rank");
-      const groupLabel = state.groupBy !== "none"
-        ? `${g.key} (n=${groupAnswers})`
-        : `Totalt (n=${groupAnswers})`;
+      const groupLabel = formatGroupLabel(state.groupBy !== "none" ? g.key : "Totalt", groupAnswers);
       createRankRadar(section, stats, groupLabel);
     } else {
       const list = document.createElement("div");
